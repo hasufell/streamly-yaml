@@ -1,4 +1,8 @@
-# Changelog for libyaml
+# Changelog for libyaml-streamly
+
+## 0.2.0
+
+* Rewrite in streamly
 
 ## 0.1.2
 

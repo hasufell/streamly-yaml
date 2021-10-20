@@ -1,9 +1,0 @@
-resolver: lts-14.22
-
-flags:
-  yaml:
-    no-examples: false
-
-packages:
-  - yaml
-  - libyaml

@@ -58,11 +58,8 @@ import qualified System.Posix.Internals as Posix
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
 #endif
-import Control.Exception (mask_, throwIO, Exception, finally)
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Trans.Resource
-import Data.Conduit hiding (Source, Sink, Conduit)
 import Data.Data
 
 import Data.ByteString (ByteString, packCString, packCStringLen)
@@ -72,8 +69,15 @@ import qualified Data.ByteString.Unsafe as BU
 
 #if WINDOWS && __GLASGOW_HASKELL__ >= 806
 import System.Directory (removeFile)
-import qualified Control.Exception
 #endif
+
+import           Control.Exception.Safe
+import qualified Streamly.Internal.Data.Stream.StreamD.Type as D
+import qualified Streamly.Internal.Data.Unfold as SIU
+import           Streamly.Prelude hiding (yield, finally, bracket)
+import qualified Streamly.Prelude     as S
+import           Streamly.Internal.Data.Unfold.Type
+
 
 data Event =
       EventStreamStart
@@ -573,22 +577,16 @@ newtype ToEventRawException = ToEventRawException CInt
     deriving (Show, Typeable)
 instance Exception ToEventRawException
 
--- | Create a conduit that yields events from a bytestring.
-decode :: MonadResource m => B.ByteString -> ConduitM i Event m ()
-decode = mapOutput yamlEvent . decodeMarked
 
--- | Create a conduit that yields marked events from a bytestring.
---
--- This conduit will yield identical events to that of "decode", but also
--- includes start and end marks for each event.
---
--- @since 0.10.4.0
-decodeMarked :: MonadResource m => B.ByteString -> ConduitM i MarkedEvent m ()
-decodeMarked bs | B8.null bs = return ()
-decodeMarked bs =
-    bracketP alloc cleanup (runParser . fst)
+decode :: (MonadCatch m, MonadAsync m, MonadMask m) => B.ByteString -> SerialT m Event
+decode = fmap yamlEvent . decodeMarked
+
+decodeMarked :: (MonadCatch m, MonadAsync m, MonadMask m) => B.ByteString -> SerialT m MarkedEvent
+decodeMarked bs'
+  | B8.null bs' = nil
+  | otherwise = unfold (SIU.bracket (liftIO . alloc) (liftIO . cleanup) (lmap fst unfoldParser)) bs'
   where
-    alloc = mask_ $ do
+    alloc bs = mask_ $ do
         ptr <- mallocBytes parserSize
         res <- c_yaml_parser_initialize ptr
         if res == 0
@@ -606,6 +604,7 @@ decodeMarked bs =
         touchForeignPtr bsfptr
         c_yaml_parser_delete ptr
         free ptr
+
 
 -- XXX copied from GHC.IO.FD
 std_flags, read_flags, output_flags, write_flags :: CInt
@@ -625,21 +624,14 @@ openFile file rawOpenFlags openMode = do
     then withCString openMode $ \openMode' -> c_fdopen fd openMode'
     else return nullPtr
 
--- | Creata a conduit that yields events from a file.
-decodeFile :: MonadResource m => FilePath -> ConduitM i Event m ()
-decodeFile = mapOutput yamlEvent . decodeFileMarked
 
--- | Create a conduit that yields marked events from a file.
---
--- This conduit will yield identical events to that of "decodeFile", but also
--- includes start and end marks for each event.
---
--- @since 0.10.4.0
-decodeFileMarked :: MonadResource m => FilePath -> ConduitM i MarkedEvent m ()
-decodeFileMarked file =
-    bracketP alloc cleanup (runParser . fst)
+decodeFile :: (MonadCatch m, MonadAsync m, MonadMask m) => FilePath -> SerialT m Event
+decodeFile = fmap yamlEvent . decodeFileMarked
+
+decodeFileMarked :: (MonadCatch m, MonadAsync m, MonadMask m) => FilePath -> SerialT m MarkedEvent
+decodeFileMarked = unfold (SIU.bracket (liftIO . alloc) (liftIO . cleanup) (lmap fst unfoldParser))
   where
-    alloc = mask_ $ do
+    alloc file = mask_ $ do
         ptr <- mallocBytes parserSize
         res <- c_yaml_parser_initialize ptr
         if res == 0
@@ -663,13 +655,18 @@ decodeFileMarked file =
         c_yaml_parser_delete ptr
         free ptr
 
-runParser :: MonadResource m => Parser -> ConduitM i MarkedEvent m ()
-runParser parser = do
+
+unfoldParser :: MonadIO m => Unfold m Parser MarkedEvent
+unfoldParser = Unfold step return
+  where
+  {-# INLINE [0] step #-}
+  step parser = do
     e <- liftIO $ parserParseOne' parser
     case e of
         Left err -> liftIO $ throwIO err
-        Right Nothing -> return ()
-        Right (Just ev) -> yield ev >> runParser parser
+        Right Nothing -> pure D.Stop
+        Right (Just ev) -> pure $ D.Yield ev parser
+
 
 parserParseOne' :: Parser
                 -> IO (Either YamlException (Maybe MarkedEvent))
@@ -758,12 +755,16 @@ setWidth w opts = opts { formatOptionsWidth = w }
 setTagRendering :: (Event -> TagRender) -> FormatOptions -> FormatOptions
 setTagRendering f opts = opts { formatOptionsRenderTags = f }
 
-encode :: MonadResource m => ConduitM Event o m ByteString
+encode :: (MonadCatch m, MonadAsync m, MonadMask m)
+       => SerialT m Event
+       -> m ByteString
 encode = encodeWith defaultFormatOptions
 
--- |
--- @since 0.10.2.0
-encodeWith :: MonadResource m => FormatOptions -> ConduitM Event o m ByteString
+
+encodeWith :: (MonadCatch m, MonadAsync m, MonadMask m)
+           => FormatOptions
+           -> SerialT m Event
+           -> m ByteString
 encodeWith opts =
     runEmitter opts alloc close
   where
@@ -779,19 +780,20 @@ encodeWith opts =
         return $ B.fromForeignPtr fptr 0 $ fromIntegral len
 
 
-encodeFile :: MonadResource m
+encodeFile :: (MonadCatch m, MonadAsync m, MonadMask m)
            => FilePath
-           -> ConduitM Event o m ()
+           -> SerialT m Event
+           -> m ()
 encodeFile = encodeFileWith defaultFormatOptions
 
--- |
--- @since 0.10.2.0
-encodeFileWith :: MonadResource m
-           => FormatOptions
-           -> FilePath
-           -> ConduitM Event o m ()
-encodeFileWith opts filePath =
-    bracketP getFile c_fclose $ \file -> runEmitter opts (alloc file) (\u _ -> return u)
+
+encodeFileWith :: (MonadCatch m, MonadAsync m, MonadMask m)
+               => FormatOptions
+               -> FilePath
+               -> SerialT m Event
+               -> m ()
+encodeFileWith opts filePath inputStream =
+    bracket (liftIO getFile) (liftIO . c_fclose) $ \file -> runEmitter opts (alloc file) (\u _ -> return u) inputStream
   where
     getFile = do
 #if WINDOWS && __GLASGOW_HASKELL__ >= 806
@@ -806,13 +808,15 @@ encodeFileWith opts filePath =
 
     alloc file emitter = c_yaml_emitter_set_output_file emitter file
 
-runEmitter :: MonadResource m
+
+runEmitter :: (MonadCatch m, MonadAsync m, MonadMask m)
            => FormatOptions
            -> (Emitter -> IO a) -- ^ alloc
            -> (() -> a -> IO b) -- ^ close
-           -> ConduitM Event o m b
-runEmitter opts allocI closeI =
-    bracketP alloc cleanup go
+           -> SerialT m Event
+           -> m b
+runEmitter opts allocI closeI inputStream =
+    bracket (liftIO alloc) (liftIO . cleanup) go
   where
     alloc = mask_ $ do
         emitter <- mallocBytes emitterSize
@@ -830,15 +834,12 @@ runEmitter opts allocI closeI =
         c_yaml_emitter_delete emitter
         free emitter
 
-    go (emitter, a) =
-        loop
+    go (emitter, a) = do
+      S.mapM_ push inputStream
+      liftIO $ closeI () a
       where
-        loop = await >>= maybe (close ()) push
+        push e = void $ liftIO $ toEventRaw opts e $ c_yaml_emitter_emit emitter
 
-        push e = do
-            _ <- liftIO $ toEventRaw opts e $ c_yaml_emitter_emit emitter
-            loop
-        close u = liftIO $ closeI u a
 
 -- | The pointer position
 data YamlMark = YamlMark { yamlIndex :: Int, yamlLine :: Int, yamlColumn :: Int }

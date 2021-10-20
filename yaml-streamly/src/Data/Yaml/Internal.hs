@@ -1,8 +1,20 @@
+{-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE InstanceSigs #-}
 module Data.Yaml.Internal
     (
       ParseException(..)
@@ -21,15 +33,14 @@ module Data.Yaml.Internal
     , isNumeric
     , objToStream
     , objToEvents
+    , anyEvent
+    , missed
     ) where
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative ((<$>), Applicative(..))
 #endif
 import Control.Applicative ((<|>))
-import Control.Exception
-import Control.Monad (when, unless)
-import Control.Monad.Trans.Resource (ResourceT, runResourceT)
 import Control.Monad.State.Strict
 import Control.Monad.Reader
 import Data.Aeson
@@ -40,8 +51,8 @@ import Data.Aeson.KeyMap (KeyMap)
 #else
 import qualified Data.HashMap.Strict as M
 #endif
-import Data.Aeson.Internal (JSONPath, JSONPathElement(..), formatError)
-import Data.Aeson.Types hiding (parse)
+import Data.Aeson.Internal (formatError)
+import Data.Aeson.Types hiding (parse, Parser)
 import qualified Data.Attoparsec.Text as Atto
 import Data.Bits (shiftL, (.|.))
 import Data.ByteString (ByteString)
@@ -49,9 +60,7 @@ import qualified Data.ByteString.Builder as BB
 import qualified Data.ByteString.Lazy as BL
 import Data.ByteString.Builder.Scientific (scientificBuilder)
 import Data.Char (toUpper, ord)
-import Data.List
-import Data.Conduit ((.|), ConduitM, runConduit)
-import qualified Data.Conduit.List as CL
+import Data.List (foldl', (\\))
 import qualified Data.HashSet as HashSet
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -64,10 +73,22 @@ import Data.Text.Encoding (decodeUtf8With, encodeUtf8)
 import Data.Text.Encoding.Error (lenientDecode)
 import Data.Typeable
 import qualified Data.Vector as V
-import Data.Void (Void)
 
 import qualified Text.Libyaml as Y
 import Text.Libyaml hiding (encode, decode, encodeFile, decodeFile)
+
+import           Control.Exception.Safe
+
+import           Streamly.Prelude (SerialT)
+import Streamly.Internal.Data.Parser (Parser)
+import qualified Streamly.Internal.Data.Parser as Parser
+import qualified Streamly.Internal.Data.Stream.IsStream.Eliminate as Stream
+import qualified Streamly.Internal.Data.Stream.StreamK as K
+import Streamly.Internal.Data.Parser.ParserK.Type (fromParserK, toParserK, fromEffect)
+import qualified Streamly.Internal.Data.Parser.ParserD.Type as ParserD
+
+
+
 
 #if MIN_VERSION_aeson(2,0,0)
 fromText :: T.Text -> K.Key
@@ -154,19 +175,20 @@ prettyPrintParseException pe = case pe of
   CyclicIncludes -> "Cyclic includes"
   LoadSettingsException fp exc -> "Could not parse file as YAML: " ++ fp ++ "\n" ++ prettyPrintParseException exc
 
-defineAnchor :: Value -> String -> ReaderT JSONPath (ConduitM e o Parse) ()
+
+defineAnchor :: Value -> String -> Parser (ReaderT JSONPath Parse) Event ()
 defineAnchor value name = modify (modifyAnchors $ Map.insert name value)
   where
     modifyAnchors :: (Map String Value -> Map String Value) -> ParseState -> ParseState
     modifyAnchors f st =  st {parseStateAnchors = f (parseStateAnchors st)}
 
-lookupAnchor :: String -> ReaderT JSONPath (ConduitM e o Parse) (Maybe Value)
+lookupAnchor :: String -> Parser (ReaderT JSONPath Parse) Event (Maybe Value)
 lookupAnchor name = gets (Map.lookup name . parseStateAnchors)
 
 data Warning = DuplicateKey JSONPath
     deriving (Eq, Show)
 
-addWarning :: Warning -> ReaderT JSONPath (ConduitM e o Parse) ()
+addWarning :: Warning -> Parser (ReaderT JSONPath Parse) Event ()
 addWarning w = modify (modifyWarnings (w :))
   where
     modifyWarnings :: ([Warning] -> [Warning]) -> ParseState -> ParseState
@@ -177,14 +199,23 @@ data ParseState = ParseState {
 , parseStateWarnings :: [Warning]
 }
 
-type Parse = StateT ParseState (ResourceT IO)
+type Parse = StateT ParseState IO
 
-requireEvent :: Event -> ReaderT JSONPath (ConduitM Event o Parse) ()
+requireEvent :: Event -> Parser (ReaderT JSONPath Parse) Event ()
 requireEvent e = do
-    f <- lift CL.head
-    unless (f == Just e) $ liftIO $ throwIO $ UnexpectedEvent f $ Just e
+    f <- anyEvent
+    unless (f == Just e) $ missed (Just e)
 
-parse :: ReaderT JSONPath (ConduitM Event o Parse) Value
+{-# INLINE anyEvent #-}
+anyEvent :: (MonadCatch m, Applicative m) => Parser m Event (Maybe Event)
+anyEvent = toParserK $ ParserD.Parser step initial extract
+  where
+  initial = pure $ ParserD.IPartial ()
+  step _ a = pure $ ParserD.Done 0 (Just a)
+  extract _ = pure Nothing
+
+
+parse :: Parser (ReaderT JSONPath Parse) Event Value
 parse = do
     docs <- parseAll
     case docs of
@@ -192,35 +223,38 @@ parse = do
         [doc] -> return doc
         _ -> liftIO $ throwIO MultipleDocuments
 
-parseAll :: ReaderT JSONPath (ConduitM Event o Parse) [Value]
+
+parseAll :: Parser (ReaderT JSONPath Parse) Event [Value]
 parseAll = do
-    streamStart <- lift CL.head
-    case streamStart of
-        Nothing ->
-            -- empty string input
-            return []
-        Just EventStreamStart ->
-            -- empty file input, comment only string/file input
-            parseDocs
-        _ -> missed streamStart
-  where
-    parseDocs = do
-        documentStart <- lift CL.head
-        case documentStart of
-            Just EventStreamEnd -> return []
-            Just EventDocumentStart -> do
-                res <- parseO
-                requireEvent EventDocumentEnd
-                (res :) <$> parseDocs
-            _ -> missed documentStart
-    missed event = liftIO $ throwIO $ UnexpectedEvent event Nothing
+    e <- anyEvent
+    case e of
+      Nothing -> return []
+      Just EventStreamStart ->
+        parseDocs
+      _ -> missed e
+
+parseDocs :: Parser (ReaderT JSONPath Parse) Event [Value]
+parseDocs = do
+  e <- anyEvent
+  case e of
+      Just EventStreamEnd -> return []
+      Just EventDocumentStart -> do
+          res <- parseO
+          requireEvent EventDocumentEnd
+          (res :) <$> parseDocs
+      _ -> missed e
+
+missed :: (MonadIO m, MonadThrow m) => Maybe Event -> Parser m a b
+missed event = liftIO $ throwIO $ UnexpectedEvent event Nothing
+
 
 parseScalar :: ByteString -> Anchor -> Style -> Tag
-            -> ReaderT JSONPath (ConduitM Event o Parse) Text
+            -> Parser (ReaderT JSONPath Parse) Event Text
 parseScalar v a style tag = do
     let res = decodeUtf8With lenientDecode v
     mapM_ (defineAnchor (textToValue style tag res)) a
     return res
+
 
 textToValue :: Style -> Tag -> Text -> Value
 textToValue SingleQuoted _ t = String t
@@ -248,9 +282,10 @@ textToScientific = Atto.parseOnly (num <* Atto.endOfInput)
         isOctalDigit c = (c >= '0' && c <= '7')
         step a c = (a `shiftL` 3) .|. fromIntegral (ord c - 48)
 
-parseO :: ReaderT JSONPath (ConduitM Event o Parse) Value
+
+parseO :: Parser (ReaderT JSONPath Parse) Event Value
 parseO = do
-    me <- lift CL.head
+    me <- anyEvent
     case me of
         Just (EventScalar v tag style a) -> textToValue style tag <$> parseScalar v a style tag
         Just (EventSequenceStart _ _ a) -> parseS 0 a id
@@ -260,17 +295,17 @@ parseO = do
             case m of
                 Nothing -> liftIO $ throwIO $ UnknownAlias an
                 Just v -> return v
-        _ -> liftIO $ throwIO $ UnexpectedEvent me Nothing
+        _ -> missed me
 
 parseS :: Int
        -> Y.Anchor
        -> ([Value] -> [Value])
-       -> ReaderT JSONPath (ConduitM Event o Parse) Value
+       -> Parser (ReaderT JSONPath Parse) Event Value
 parseS !n a front = do
-    me <- lift CL.peek
+    me <- Parser.lookAhead anyEvent
     case me of
         Just EventSequenceEnd -> do
-            lift $ CL.drop 1
+            void anyEvent
             let res = Array $ V.fromList $ front []
             mapM_ (defineAnchor res) a
             return res
@@ -281,9 +316,9 @@ parseS !n a front = do
 parseM :: Set Key
        -> Y.Anchor
        -> KeyMap Value
-       -> ReaderT JSONPath (ConduitM Event o Parse) Value
+       -> Parser (ReaderT JSONPath Parse) Event Value
 parseM mergedKeys a front = do
-    me <- lift CL.head
+    me <- anyEvent
     case me of
         Just EventMappingEnd -> do
             let res = Object front
@@ -321,17 +356,19 @@ parseM mergedKeys a front = do
 
           merge xs = (Set.fromList (M.keys xs \\ M.keys front), M.union front xs)
 
-parseSrc :: ReaderT JSONPath (ConduitM Event Void Parse) val
-         -> ConduitM () Event Parse ()
-         -> IO (val, ParseState)
-parseSrc eventParser src = runResourceT $ runStateT
-    (runConduit $ src .| runReaderT eventParser [])
-    (ParseState Map.empty [])
 
-mkHelper :: ReaderT JSONPath (ConduitM Event Void Parse) val -- ^ parse libyaml events as Value or [Value]
+parseSrc :: Parser (ReaderT JSONPath Parse) Event val
+         -> SerialT IO Event
+         -> IO (val, ParseState)
+parseSrc eventParser src =
+  flip runStateT (ParseState Map.empty []) $
+    flip runReaderT [] $
+    Stream.parse eventParser (K.hoist liftIO src)
+
+mkHelper :: Parser (ReaderT JSONPath Parse) Event val        -- ^ parse libyaml events as Value or [Value]
          -> (SomeException -> IO (Either ParseException a))  -- ^ what to do with unhandled exceptions
          -> ((val, ParseState) -> Either ParseException a)   -- ^ further transform and parse results
-         -> ConduitM () Event Parse ()                       -- ^ the libyaml event (string/file) source
+         -> SerialT IO Event                                 -- ^ the libyaml event (string/file) source
          -> IO (Either ParseException a)
 mkHelper eventParser onOtherExc extractResults src = catches
     (extractResults <$> parseSrc eventParser src)
@@ -342,13 +379,13 @@ mkHelper eventParser onOtherExc extractResults src = catches
     ]
 
 decodeHelper :: FromJSON a
-             => ConduitM () Y.Event Parse ()
+             => SerialT IO Y.Event
              -> IO (Either ParseException ([Warning], Either String a))
 decodeHelper = mkHelper parse throwIO $ \(v, st) ->
     Right (parseStateWarnings st, parseEither parseJSON v)
 
 decodeAllHelper :: FromJSON a
-                => ConduitM () Event Parse ()
+                => SerialT IO Event
                 -> IO (Either ParseException ([Warning], Either String [a]))
 decodeAllHelper = mkHelper parseAll throwIO $ \(vs, st) ->
     Right (parseStateWarnings st, mapM (parseEither parseJSON) vs)
@@ -357,7 +394,7 @@ catchLeft :: SomeException -> IO (Either ParseException a)
 catchLeft = return . Left . OtherParseException
 
 decodeHelper_ :: FromJSON a
-              => ConduitM () Event Parse ()
+              => SerialT IO Event
               -> IO (Either ParseException ([Warning], a))
 decodeHelper_ = mkHelper parse catchLeft $ \(v, st) ->
     case parseEither parseJSON v of
@@ -365,7 +402,7 @@ decodeHelper_ = mkHelper parse catchLeft $ \(v, st) ->
         Right x -> Right (parseStateWarnings st, x)
 
 decodeAllHelper_ :: FromJSON a
-                 => ConduitM () Event Parse ()
+                 => SerialT IO Event
                  -> IO (Either ParseException ([Warning], [a]))
 decodeAllHelper_ = mkHelper parseAll catchLeft $ \(vs, st) ->
     case mapM (parseEither parseJSON) vs of
@@ -457,3 +494,26 @@ objToEvents stringStyle = objToEvents' . toJSON
           lbs = BB.toLazyByteString builder
           bs = BL.toStrict lbs
        in EventScalar bs IntTag PlainNoTag Nothing : rest
+
+
+instance (MonadThrow m, MonadReader r m, MonadCatch m) => MonadReader r (Parser m a) where
+    {-# INLINE ask #-}
+    ask = fromEffect ask
+    {-# INLINE local #-}
+    local f (fromParserK -> ParserD.Parser step init' extract) =
+      toParserK $ ParserD.Parser (\s a -> local f $ step s a)
+             (local f init')
+             (\s -> local f $ extract s)
+
+
+instance (MonadThrow m, MonadState s m) => MonadState s (Parser m a) where
+    {-# INLINE get #-}
+    get = fromEffect get
+    {-# INLINE put #-}
+    put s = fromEffect (put s)
+
+
+instance (MonadThrow m, MonadIO m) => MonadIO (Parser m a) where
+    {-# INLINE liftIO #-}
+    liftIO io = fromEffect (liftIO io)
+

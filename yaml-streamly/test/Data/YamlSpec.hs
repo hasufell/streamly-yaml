@@ -15,9 +15,6 @@ import qualified Data.Scientific as S
 
 import Test.HUnit hiding (Test, path)
 
-import Data.Conduit (runConduitRes, (.|), ConduitM)
-import qualified Data.Conduit.List as CL
-
 import Control.Monad
 import Control.Exception (try, SomeException)
 import Test.Hspec
@@ -43,28 +40,24 @@ import qualified Data.HashMap.Strict as M
 import qualified Data.Text as T
 import Data.Aeson.TH
 import Data.Scientific (Scientific)
-import Data.String (fromString)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Data.HashMap.Strict (HashMap)
-import qualified Data.HashMap.Strict as HM
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
+
+import qualified Streamly.Prelude as P
+import Streamly.Data.Fold (Fold)
+import qualified Streamly.Data.Fold as Fold
 
 #if MIN_VERSION_aeson(2,0,0)
 fromText :: T.Text -> K.Key
 fromText = K.fromText
-
-toText :: K.Key -> T.Text
-toText = K.toText
 #else
 fromText :: T.Text -> T.Text
 fromText = id
-
-toText :: Key -> T.Text
-toText = id
 
 type KeyMap a = M.HashMap Text a
 type Key = Text
@@ -101,7 +94,7 @@ shouldDecodeAll bs expected = do
 
 shouldDecodeEvents :: B8.ByteString -> [Y.Event] -> IO ()
 shouldDecodeEvents bs expected = do
-    actual <- runConduitRes $ Y.decode bs .| CL.consume
+    actual <- P.toList $ Y.decode bs
     map anyStyle actual `shouldBe` map anyStyle expected
 
 anyStyle :: Y.Event -> Y.Event
@@ -111,7 +104,7 @@ anyStyle (Y.EventMappingStart tag _ anchor)  = Y.EventMappingStart tag Y.AnyMapp
 anyStyle event = event
 
 testEncodeWith :: Y.FormatOptions -> [Y.Event] -> IO BS.ByteString
-testEncodeWith opts es = runConduitRes $ CL.sourceList (eventStream es) .| Y.encodeWith opts
+testEncodeWith opts es = Y.encodeWith opts (P.fromList $ eventStream es)
 
 eventStream :: [Y.Event] -> [Y.Event]
 eventStream events =
@@ -380,16 +373,16 @@ specialStrings =
     , "foo\nbar\nbaz\n"
     ]
 
-counter :: Monad m => (Y.Event -> Bool) -> ConduitM Y.Event o m Int
+counter :: Monad m => (Y.Event -> Bool) -> Fold m Y.Event Int
 counter pred' =
-    CL.fold (\cnt e -> (if pred' e then 1 else 0) + cnt) 0
+    Fold.foldl' (\cnt e -> (if pred' e then 1 else 0) + cnt) 0
 
 caseHelper :: String
            -> (Y.Event -> Bool)
            -> Int
            -> Assertion
 caseHelper yamlString pred' expRes = do
-    res <- runConduitRes $ Y.decode (B8.pack yamlString) .| counter pred'
+    res <- P.fold (counter pred') (Y.decode (B8.pack yamlString))
     res @?= expRes
 
 caseCountScalarsWithAnchor :: Assertion
@@ -490,7 +483,7 @@ caseCountBlockStyleMappings =
 
 caseCountScalars :: Assertion
 caseCountScalars = do
-    res <- runConduitRes $ Y.decode yamlBS .| CL.fold adder accum
+    res <- P.fold (Fold.foldl' adder accum) (Y.decode yamlBS)
     res @?= (7, 1, 2)
   where
     yamlString = "foo:\n  baz: [bin1, bin2, bin3]\nbaz: bazval"
@@ -503,7 +496,7 @@ caseCountScalars = do
 
 caseLargestString :: Assertion
 caseLargestString = do
-    res <- runConduitRes $ Y.decodeFile filePath .| CL.fold adder accum
+    res <- P.fold (Fold.foldl' adder accum) (Y.decodeFile filePath)
     res @?= (length expected, expected)
     where
         expected = "this one is just a little bit bigger than the others"
@@ -523,9 +516,9 @@ instance Eq MyEvent where
 
 caseEncodeDecode :: Assertion
 caseEncodeDecode = do
-    eList <- runConduitRes $ Y.decode yamlBS .| CL.consume
-    bs <- runConduitRes $ CL.sourceList eList .| Y.encode
-    eList2 <- runConduitRes $ Y.decode bs .| CL.consume
+    eList <- P.toList $ Y.decode yamlBS
+    bs <- Y.encode (P.fromList eList)
+    eList2 <- P.toList $ Y.decode bs
     map MyEvent eList @=? map MyEvent eList2
   where
     yamlString = "foo: bar\nbaz:\n - bin1\n - bin2\n"
@@ -534,23 +527,23 @@ caseEncodeDecode = do
 caseEncodeDecodeEvents :: Assertion
 caseEncodeDecodeEvents = do
     let events = Internal.objToEvents D.defaultStringStyle testJSON []
-    result <- Internal.decodeHelper_ . CL.sourceList $ eventStream events
+    result <- Internal.decodeHelper_ . P.fromList $ eventStream events
     let (_, value) = either (error . show) id result
     value @?= testJSON
 
 caseEncodeDecodeFile :: Assertion
 caseEncodeDecodeFile = withFile "" $ \tmpPath -> do
-    eList <- runConduitRes $ Y.decodeFile filePath .| CL.consume
-    runConduitRes $ CL.sourceList eList .| Y.encodeFile tmpPath
-    eList2 <- runConduitRes $ Y.decodeFile filePath .| CL.consume
+    eList <- P.toList $ Y.decodeFile filePath
+    Y.encodeFile tmpPath (P.fromList eList)
+    eList2 <- P.toList $ Y.decodeFile filePath
     map MyEvent eList @=? map MyEvent eList2
   where
     filePath = "test/largest-string.yaml"
 
 caseInterleave :: Assertion
 caseInterleave = withFile "" $ \tmpPath -> withFile "" $ \tmpPath2 -> do
-    () <- runConduitRes $ Y.decodeFile filePath .| Y.encodeFile tmpPath
-    () <- runConduitRes $ Y.decodeFile tmpPath .| Y.encodeFile tmpPath2
+    () <- Y.encodeFile tmpPath (Y.decodeFile filePath)
+    () <- Y.encodeFile tmpPath2 (Y.decodeFile tmpPath)
     f1 <- readFile tmpPath
     f2 <- readFile tmpPath2
     f1 @=? f2
@@ -559,7 +552,7 @@ caseInterleave = withFile "" $ \tmpPath -> withFile "" $ \tmpPath2 -> do
 
 caseDecodeInvalidDocument :: Assertion
 caseDecodeInvalidDocument = do
-    x <- try $ runConduitRes $ Y.decode yamlBS .| CL.sinkNull
+    x <- try $ P.toList $ Y.decode yamlBS
     case x of
         Left (_ :: SomeException) -> return ()
         Right y -> do

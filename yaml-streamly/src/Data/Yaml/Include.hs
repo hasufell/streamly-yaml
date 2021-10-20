@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Data.Yaml.Include (
   decodeFile
 , decodeFileEither
@@ -12,13 +13,9 @@ import Control.Monad (guard)
 import System.IO.Error (ioeGetFileName, ioeGetLocation, isDoesNotExistError)
 #endif
 
-import Control.Exception (throwIO)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Resource (MonadResource)
 import Data.Aeson (FromJSON)
-import Data.Conduit
-import qualified Data.Conduit.List as CL
 import Data.Text (unpack)
 import Data.Text.Encoding (decodeUtf8)
 import System.Directory
@@ -28,23 +25,27 @@ import Data.Yaml.Internal (ParseException(..), Warning(..), decodeHelper_, decod
 import Text.Libyaml hiding (decodeFile)
 import qualified Text.Libyaml as Y
 
+import           Control.Exception.Safe
+import qualified Streamly.Prelude     as S
+import           Streamly.Prelude (SerialT, MonadAsync)
+
 eventsFromFile
-    :: MonadResource m
+    :: (MonadCatch m, MonadAsync m, MonadMask m)
     => FilePath
-    -> ConduitM i Event m ()
+    -> SerialT m Event
 eventsFromFile = go []
   where
-    go :: MonadResource m => [FilePath] -> FilePath -> ConduitM i Event m ()
+-- decodeFile :: (MonadCatch m, MonadAsync m, MonadMask m) => FilePath -> SerialT m Event
+    go :: (MonadCatch m, MonadAsync m, MonadMask m) => [FilePath] -> FilePath -> SerialT m Event
     go seen fp = do
         cfp <- liftIO $ handleNotFound $ canonicalizePath fp
         when (cfp `elem` seen) $ do
             liftIO $ throwIO CyclicIncludes
-        Y.decodeFile cfp .| do
-            awaitForever $ \event -> case event of
+        Y.decodeFile cfp >>= \event -> case event of
                 EventScalar f (UriTag "!include") _ _ -> do
                     let includeFile = takeDirectory cfp </> unpack (decodeUtf8 f)
-                    go (cfp : seen) includeFile .| CL.filter (`notElem` irrelevantEvents)
-                _ -> yield event
+                    S.filter (`notElem` irrelevantEvents) $ go (cfp : seen) includeFile
+                _ -> pure event
 
     irrelevantEvents = [EventStreamStart, EventDocumentStart, EventDocumentEnd, EventStreamEnd]
 

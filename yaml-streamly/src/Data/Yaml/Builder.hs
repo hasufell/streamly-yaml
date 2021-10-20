@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE CPP #-}
 -- | NOTE: This module is a highly experimental preview release. It may change
@@ -48,7 +49,6 @@ import Data.Aeson.Encode (encodeToTextBuilder)
 import Data.Aeson.Types (Value(..))
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as S8
-import Data.Conduit
 import Data.Scientific (Scientific)
 import Data.Text (Text, unpack)
 import qualified Data.Text as T
@@ -59,6 +59,11 @@ import System.IO.Unsafe (unsafePerformIO)
 
 import Data.Yaml.Internal
 import Text.Libyaml
+
+import           Control.Exception.Safe
+
+import qualified Streamly.Prelude     as S
+import           Streamly.Prelude (SerialT, MonadAsync)
 
 (.=) :: ToYaml a => Text -> a -> (Text, YamlBuilder)
 k .= v = (k, toYaml v)
@@ -218,18 +223,21 @@ toEvents :: YamlBuilder -> [Event]
 toEvents (YamlBuilder front) =
     EventStreamStart : EventDocumentStart : front [EventDocumentEnd, EventStreamEnd]
 
-toSource :: (Monad m, ToYaml a) => a -> ConduitM i Event m ()
-toSource = mapM_ yield . toEvents . toYaml
+toSource :: (Monad m, ToYaml a, MonadCatch m, MonadAsync m, MonadMask m)
+         => a
+         -> SerialT m Event
+toSource = S.fromList . toEvents . toYaml
 
 -- |
 -- @since 0.8.7
 toByteString :: ToYaml a => a -> ByteString
 toByteString = toByteStringWith defaultFormatOptions
 
+
 -- |
 -- @since 0.10.2.0
 toByteStringWith :: ToYaml a => FormatOptions -> a -> ByteString
-toByteStringWith opts yb = unsafePerformIO $ runConduitRes $ toSource yb .| encodeWith opts
+toByteStringWith opts yb = unsafePerformIO $ encodeWith opts (toSource yb)
 
 writeYamlFile :: ToYaml a => FilePath -> a -> IO ()
 writeYamlFile = writeYamlFileWith defaultFormatOptions
@@ -237,4 +245,4 @@ writeYamlFile = writeYamlFileWith defaultFormatOptions
 -- |
 -- @since 0.10.2.0
 writeYamlFileWith :: ToYaml a => FormatOptions -> FilePath -> a -> IO ()
-writeYamlFileWith opts fp yb = runConduitRes $ toSource yb .| encodeFileWith opts fp
+writeYamlFileWith opts fp yb = encodeFileWith opts fp (toSource yb)
