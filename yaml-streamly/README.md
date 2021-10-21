@@ -1,7 +1,4 @@
-## yaml
-
-[![GitHub build and test status](https://github.com/snoyberg/yaml/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/snoyberg/yaml/actions/workflows/tests.yml)
-[![Appveyor build status](https://ci.appveyor.com/api/projects/status/hqy2jketp8m502so/branch/master?svg=true)](https://ci.appveyor.com/project/snoyberg/yaml/branch/master)
+## yaml-streamly
 
 Provides support for parsing and emitting Yaml documents.
 
@@ -9,7 +6,7 @@ Provides support for parsing and emitting Yaml documents.
 
 ### Examples
 
-Usage examples can be found in the `Data.Yaml` documentation or in the [examples](https://github.com/snoyberg/yaml/tree/master/yaml/examples) directory.
+Usage examples can be found in the `Data.Yaml` documentation or in the [examples](./examples) directory.
 
 ### Additional `yaml` modules
 
