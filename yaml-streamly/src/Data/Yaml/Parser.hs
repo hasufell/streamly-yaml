@@ -153,9 +153,9 @@ data YamlParseException
     deriving (Show, Typeable)
 instance Exception YamlParseException
 
+{-# INLINE sinkValue #-}
 sinkValue :: (MonadIO m, MonadCatch m, MonadThrow m) => Parser (WriterT AnchorMap m) Event YamlValue
-sinkValue =
-    start
+sinkValue = start
   where
     start = anyEvent >>= maybe (die "Unexpected end of events") go
 
@@ -199,10 +199,10 @@ sinkValue =
                 goM (front . ((k, v):))
             Just e -> missed (Just e)
 
+{-# INLINE sinkRawDoc #-}
 sinkRawDoc :: SerialT IO Event -> IO RawDoc
 sinkRawDoc src = do
     uncurry RawDoc <$> runWriterT (Stream.parse sinkValue (K.hoist liftIO src))
 
--- decodeFile :: (MonadCatch m, MonadAsync m, MonadMask m) => FilePath -> SerialT m Event
 readYamlFile :: FromYaml a => FilePath -> IO a
 readYamlFile fp = sinkRawDoc (decodeFile fp) >>= parseRawDoc

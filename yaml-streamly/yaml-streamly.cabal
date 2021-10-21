@@ -56,7 +56,7 @@ library
   hs-source-dirs:
       src
   other-extensions: LambdaCase
-  ghc-options: -Wall -Wcompat
+  ghc-options: -Wall -Wcompat -fspecialise-aggressively -fexpose-all-unfoldings -fdicts-strict -O2 -fmax-worker-args=16 -fspec-constr-recursive=16
   build-depends:
       aeson >=0.11
     , attoparsec >=0.11.3.0

@@ -41,7 +41,7 @@ library
       Paths_libyaml_streamly
   hs-source-dirs:
       src
-  ghc-options: -Wall
+  ghc-options: -Wall -fspecialise-aggressively -fexpose-all-unfoldings -fdicts-strict -O2 -fmax-worker-args=16 -fspec-constr-recursive=16
   include-dirs:
       c
   c-sources:

@@ -8,6 +8,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StrictData #-}
 
 -- | Low-level, streaming YAML interface. For a higher-level interface, see
 -- "Data.Yaml".
@@ -327,6 +328,7 @@ readStyle getStyle er = toEnum . fromEnum <$> getStyle er
 readTag :: (EventRaw -> IO (Ptr CUChar)) -> EventRaw -> IO Tag
 readTag getTag er = bsToTag <$> (getTag er >>= packCString . castPtr) 
 
+{-# INLINE getEvent #-}
 getEvent :: EventRaw -> IO (Maybe MarkedEvent)
 getEvent er = do
     et <- c_get_event_type er
@@ -578,9 +580,11 @@ newtype ToEventRawException = ToEventRawException CInt
 instance Exception ToEventRawException
 
 
+{-# INLINE decode #-}
 decode :: (MonadCatch m, MonadAsync m, MonadMask m) => B.ByteString -> SerialT m Event
 decode = fmap yamlEvent . decodeMarked
 
+{-# INLINE decodeMarked #-}
 decodeMarked :: (MonadCatch m, MonadAsync m, MonadMask m) => B.ByteString -> SerialT m MarkedEvent
 decodeMarked bs'
   | B8.null bs' = nil
@@ -625,9 +629,11 @@ openFile file rawOpenFlags openMode = do
     else return nullPtr
 
 
+{-# INLINE decodeFile #-}
 decodeFile :: (MonadCatch m, MonadAsync m, MonadMask m) => FilePath -> SerialT m Event
 decodeFile = fmap yamlEvent . decodeFileMarked
 
+{-# INLINE decodeFileMarked #-}
 decodeFileMarked :: (MonadCatch m, MonadAsync m, MonadMask m) => FilePath -> SerialT m MarkedEvent
 decodeFileMarked = unfold (SIU.bracket (liftIO . alloc) (liftIO . cleanup) (lmap fst unfoldParser))
   where
@@ -656,6 +662,7 @@ decodeFileMarked = unfold (SIU.bracket (liftIO . alloc) (liftIO . cleanup) (lmap
         free ptr
 
 
+{-# INLINE unfoldParser #-}
 unfoldParser :: MonadIO m => Unfold m Parser MarkedEvent
 unfoldParser = Unfold step return
   where
@@ -755,12 +762,13 @@ setWidth w opts = opts { formatOptionsWidth = w }
 setTagRendering :: (Event -> TagRender) -> FormatOptions -> FormatOptions
 setTagRendering f opts = opts { formatOptionsRenderTags = f }
 
+{-# INLINE encode #-}
 encode :: (MonadCatch m, MonadAsync m, MonadMask m)
        => SerialT m Event
        -> m ByteString
 encode = encodeWith defaultFormatOptions
 
-
+{-# INLINE encodeWith #-}
 encodeWith :: (MonadCatch m, MonadAsync m, MonadMask m)
            => FormatOptions
            -> SerialT m Event
@@ -780,6 +788,7 @@ encodeWith opts =
         return $ B.fromForeignPtr fptr 0 $ fromIntegral len
 
 
+{-# INLINE encodeFile #-}
 encodeFile :: (MonadCatch m, MonadAsync m, MonadMask m)
            => FilePath
            -> SerialT m Event
@@ -787,6 +796,7 @@ encodeFile :: (MonadCatch m, MonadAsync m, MonadMask m)
 encodeFile = encodeFileWith defaultFormatOptions
 
 
+{-# INLINE encodeFileWith #-}
 encodeFileWith :: (MonadCatch m, MonadAsync m, MonadMask m)
                => FormatOptions
                -> FilePath
@@ -809,6 +819,7 @@ encodeFileWith opts filePath inputStream =
     alloc file emitter = c_yaml_emitter_set_output_file emitter file
 
 
+{-# INLINE runEmitter #-}
 runEmitter :: (MonadCatch m, MonadAsync m, MonadMask m)
            => FormatOptions
            -> (Emitter -> IO a) -- ^ alloc

@@ -185,7 +185,7 @@ defineAnchor value name = modify (modifyAnchors $ Map.insert name value)
 lookupAnchor :: String -> Parser (ReaderT JSONPath Parse) Event (Maybe Value)
 lookupAnchor name = gets (Map.lookup name . parseStateAnchors)
 
-data Warning = DuplicateKey JSONPath
+data Warning = DuplicateKey !JSONPath
     deriving (Eq, Show)
 
 addWarning :: Warning -> Parser (ReaderT JSONPath Parse) Event ()
@@ -195,7 +195,7 @@ addWarning w = modify (modifyWarnings (w :))
     modifyWarnings f st =  st {parseStateWarnings = f (parseStateWarnings st)}
 
 data ParseState = ParseState {
-  parseStateAnchors :: Map String Value
+  parseStateAnchors  :: Map String Value
 , parseStateWarnings :: [Warning]
 }
 
@@ -207,7 +207,7 @@ requireEvent e = do
     unless (f == Just e) $ missed (Just e)
 
 {-# INLINE anyEvent #-}
-anyEvent :: (MonadCatch m, Applicative m) => Parser m Event (Maybe Event)
+anyEvent :: MonadCatch m => Parser m a (Maybe a)
 anyEvent = toParserK $ ParserD.Parser step initial extract
   where
   initial = pure $ ParserD.IPartial ()
@@ -501,19 +501,19 @@ instance (MonadThrow m, MonadReader r m, MonadCatch m) => MonadReader r (Parser 
     ask = fromEffect ask
     {-# INLINE local #-}
     local f (fromParserK -> ParserD.Parser step init' extract) =
-      toParserK $ ParserD.Parser (\s a -> local f $ step s a)
+      toParserK $ ParserD.Parser ((local f .) . step)
              (local f init')
-             (\s -> local f $ extract s)
+             (local f . extract)
 
 
 instance (MonadThrow m, MonadState s m) => MonadState s (Parser m a) where
     {-# INLINE get #-}
     get = fromEffect get
     {-# INLINE put #-}
-    put s = fromEffect (put s)
+    put = fromEffect . put
 
 
 instance (MonadThrow m, MonadIO m) => MonadIO (Parser m a) where
     {-# INLINE liftIO #-}
-    liftIO io = fromEffect (liftIO io)
+    liftIO = fromEffect . liftIO
 
