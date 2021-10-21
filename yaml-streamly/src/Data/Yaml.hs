@@ -88,17 +88,11 @@ module Data.Yaml
     , FormatOptions
     , defaultFormatOptions
     , setWidth
-      -- * Deprecated
-    , decode
-    , decodeFile
-    , decodeEither
     ) where
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative((<$>))
 #endif
-import Control.Exception
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Trans.Resource (MonadThrow, throwM)
 import Data.Aeson
     ( Value (..), ToJSON (..), FromJSON (..), object
     , (.=) , (.:) , (.:?) , (.!=)
@@ -107,8 +101,6 @@ import Data.Aeson
     )
 import Data.Aeson.Types (parseMaybe, parseEither, Parser)
 import Data.ByteString (ByteString)
-import Data.Conduit ((.|), runConduitRes)
-import qualified Data.Conduit.List as CL
 import qualified Data.Vector as V
 import System.IO.Unsafe (unsafePerformIO)
 import Data.Text (Text)
@@ -116,6 +108,11 @@ import Data.Text (Text)
 import Data.Yaml.Internal
 import Text.Libyaml hiding (encode, decode, encodeFile, decodeFile, encodeWith, encodeFileWith)
 import qualified Text.Libyaml as Y
+
+import           Control.Exception.Safe
+
+import qualified Streamly.Prelude     as S
+
 
 -- | Set the string style in the encoded YAML. This is a function that decides
 -- for each string the type of YAML string to output.
@@ -164,9 +161,7 @@ encode = encodeWith defaultEncodeOptions
 --
 -- @since 0.10.2.0
 encodeWith :: ToJSON a => EncodeOptions -> a -> ByteString
-encodeWith opts obj = unsafePerformIO $ runConduitRes
-    $ CL.sourceList (objToStream (encodeOptionsStringStyle opts) $ toJSON obj)
-   .| Y.encodeWith (encodeOptionsFormat opts)
+encodeWith opts obj = unsafePerformIO $ Y.encodeWith (encodeOptionsFormat opts) (S.fromList $ objToStream (encodeOptionsStringStyle opts) $ toJSON obj)
 
 -- | Encode a value into its YAML representation and save to the given file.
 encodeFile :: ToJSON a => FilePath -> a -> IO ()
@@ -176,23 +171,7 @@ encodeFile = encodeFileWith defaultEncodeOptions
 --
 -- @since 0.10.2.0
 encodeFileWith :: ToJSON a => EncodeOptions -> FilePath -> a -> IO ()
-encodeFileWith opts fp obj = runConduitRes
-    $ CL.sourceList (objToStream (encodeOptionsStringStyle opts) $ toJSON obj)
-   .| Y.encodeFileWith (encodeOptionsFormat opts) fp
-
-decode :: FromJSON a
-       => ByteString
-       -> Maybe a
-decode bs = unsafePerformIO
-          $ either (const Nothing) snd
-          <$> decodeHelper_ (Y.decode bs)
-{-# DEPRECATED decode "Please use decodeEither or decodeThrow, which provide information on how the decode failed" #-}
-
-decodeFile :: FromJSON a
-           => FilePath
-           -> IO (Maybe a)
-decodeFile fp = (fmap snd <$> decodeHelper (Y.decodeFile fp)) >>= either throwIO (return . either (const Nothing) id)
-{-# DEPRECATED decodeFile "Please use decodeFileEither, which does not confused type-directed and runtime exceptions." #-}
+encodeFileWith opts fp obj = Y.encodeFileWith (encodeOptionsFormat opts) fp (S.fromList $ objToStream (encodeOptionsStringStyle opts) $ toJSON obj)
 
 -- | A version of 'decodeFile' which should not throw runtime exceptions.
 --
@@ -231,11 +210,6 @@ decodeAllFileWithWarnings
     -> IO (Either ParseException ([Warning], [a]))
 decodeAllFileWithWarnings = decodeAllHelper_ . Y.decodeFile
 
-decodeEither :: FromJSON a => ByteString -> Either String a
-decodeEither bs = unsafePerformIO
-                $ either (Left . prettyPrintParseException) id
-                <$> (fmap snd <$> decodeHelper (Y.decode bs))
-{-# DEPRECATED decodeEither "Please use decodeEither' or decodeThrow, which provide more useful failures" #-}
 
 -- | More helpful version of 'decodeEither' which returns the 'YamlException'.
 --

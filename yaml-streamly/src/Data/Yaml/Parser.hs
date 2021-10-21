@@ -6,14 +6,11 @@
 module Data.Yaml.Parser where
 
 import Control.Applicative
-import Control.Exception (Exception)
 import Control.Monad (MonadPlus (..), liftM, ap)
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Resource (MonadThrow, throwM)
-import Control.Monad.Trans.Writer.Strict (tell, WriterT)
+import Control.Exception.Safe
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Writer.Strict (tell, WriterT, runWriterT)
 import Data.ByteString (ByteString)
-import Data.Conduit
-import Data.Conduit.Lift (runWriterC)
 import qualified Data.Map as Map
 #if !MIN_VERSION_base(4,8,0)
 import Data.Monoid (Monoid (..))
@@ -21,10 +18,16 @@ import Data.Monoid (Monoid (..))
 #if !MIN_VERSION_base(4,11,0)
 import Data.Semigroup (Semigroup(..))
 #endif
+import Data.Yaml.Internal
 import Data.Text (Text, pack, unpack)
 import Data.Text.Encoding (decodeUtf8)
 import Data.Text.Read (signed, decimal)
-import Data.Typeable (Typeable)
+
+import           Streamly.Prelude (SerialT)
+import Streamly.Internal.Data.Parser (Parser)
+import qualified Streamly.Internal.Data.Stream.IsStream.Eliminate as Stream
+import qualified Streamly.Internal.Data.Stream.StreamK as K
+import Streamly.Internal.Data.Parser.ParserK.Type (fromEffect, die)
 
 import Text.Libyaml
 
@@ -150,15 +153,15 @@ data YamlParseException
     deriving (Show, Typeable)
 instance Exception YamlParseException
 
-sinkValue :: MonadThrow m => ConduitM Event o (WriterT AnchorMap m) YamlValue
-sinkValue =
-    start
+{-# INLINE sinkValue #-}
+sinkValue :: (MonadIO m, MonadCatch m, MonadThrow m) => Parser (WriterT AnchorMap m) Event YamlValue
+sinkValue = start
   where
-    start = await >>= maybe (throwM UnexpectedEndOfEvents) go
+    start = anyEvent >>= maybe (die "Unexpected end of events") go
 
     tell' Nothing val = return val
     tell' (Just name) val = do
-        lift $ tell $ Map.singleton name val
+        fromEffect $ tell $ Map.singleton name val
         return val
 
     go EventStreamStart = start
@@ -173,32 +176,33 @@ sinkValue =
         pairs <- goM id
         let val = Mapping pairs mname
         tell' mname val
-
-    go e = throwM $ UnexpectedEvent e
+    go e = missed (Just e)
 
     goS front = do
-        me <- await
+        me <- anyEvent
         case me of
-            Nothing -> throwM UnexpectedEndOfEvents
+            Nothing -> die "Unexpected end of events"
             Just EventSequenceEnd -> return $ front []
             Just e -> do
                 val <- go e
                 goS (front . (val:))
 
     goM front = do
-        mk <- await
+        mk <- anyEvent
         case mk of
-            Nothing -> throwM UnexpectedEndOfEvents
+            Nothing -> die "Unexpected end of events"
             Just EventMappingEnd -> return $ front []
             Just (EventScalar a b c d) -> do
                 _ <- tell' d $ Scalar a b c d
                 let k = decodeUtf8 a
                 v <- start
                 goM (front . ((k, v):))
-            Just e -> throwM $ UnexpectedEvent e
+            Just e -> missed (Just e)
 
-sinkRawDoc :: MonadThrow m => ConduitM Event o m RawDoc
-sinkRawDoc = uncurry RawDoc <$> runWriterC sinkValue
+{-# INLINE sinkRawDoc #-}
+sinkRawDoc :: SerialT IO Event -> IO RawDoc
+sinkRawDoc src = do
+    uncurry RawDoc <$> runWriterT (Stream.parse sinkValue (K.hoist liftIO src))
 
 readYamlFile :: FromYaml a => FilePath -> IO a
-readYamlFile fp = runConduitRes (decodeFile fp .| sinkRawDoc) >>= parseRawDoc
+readYamlFile fp = sinkRawDoc (decodeFile fp) >>= parseRawDoc

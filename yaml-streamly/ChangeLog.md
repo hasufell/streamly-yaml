@@ -1,4 +1,8 @@
-# ChangeLog for yaml
+# ChangeLog for yaml-streamly
+
+## 0.12.0
+
+* Rewrite in streamly
 
 ## 0.11.7.0
 

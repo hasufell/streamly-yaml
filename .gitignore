@@ -9,3 +9,4 @@ tarballs/
 .dir-locals.el
 *#
 stack.yaml.lock
+dist-newstyle/

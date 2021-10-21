@@ -1,19 +1,14 @@
 cabal-version: 1.12
-
--- This file has been generated from package.yaml by hpack version 0.34.4.
---
--- see: https://github.com/sol/hpack
-
-name:           yaml
-version:        0.11.7.0
+name:           yaml-streamly
+version:        0.12.0
 synopsis:       Support for parsing and rendering YAML documents.
-description:    README and API documentation are available at <https://www.stackage.org/package/yaml>
+description:    Rewrite of yaml in streamly
 category:       Data
 stability:      stable
-homepage:       https://github.com/snoyberg/yaml#readme
-bug-reports:    https://github.com/snoyberg/yaml/issues
-author:         Michael Snoyman <michael@snoyman.com>, Anton Ageev <antage@gmail.com>,Kirill Simonov
-maintainer:     Michael Snoyman <michael@snoyman.com>
+homepage:       https://github.com/hasufell/streamly-yaml#readme
+bug-reports:    https://github.com/hasufell/streamly-yaml
+author:         Michael Snoyman <michael@snoyman.com>, Anton Ageev <antage@gmail.com>,Kirill Simonov, Julian Ospald <hasufell@posteo.de>
+maintainer:     Julian Ospald <hasufell@posteo.de>
 license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
@@ -33,7 +28,7 @@ extra-source-files:
 
 source-repository head
   type: git
-  location: https://github.com/snoyberg/yaml
+  location: https://github.com/hasufell/streamly-yaml
 
 flag no-examples
   description: don't build the examples
@@ -57,25 +52,24 @@ library
       Data.Yaml.Pretty
       Data.Yaml.TH
   other-modules:
-      Paths_yaml
+      Paths_yaml_streamly
   hs-source-dirs:
       src
-  other-extensions:
-      LambdaCase
-  ghc-options: -Wall -Wcompat
+  other-extensions: LambdaCase
+  ghc-options: -Wall -Wcompat -fspecialise-aggressively -fexpose-all-unfoldings -fdicts-strict -O2 -fmax-worker-args=16 -fspec-constr-recursive=16
   build-depends:
       aeson >=0.11
     , attoparsec >=0.11.3.0
     , base >=4.9.1 && <5
     , bytestring >=0.9.1.4
-    , conduit >=1.2.8 && <1.4
     , containers
     , directory
     , filepath
-    , libyaml ==0.1.*
+    , libyaml-streamly >=0.2
     , mtl
-    , resourcet >=0.3 && <1.3
     , scientific >=0.3
+    , streamly >= 0.8.0
+    , safe-exceptions
     , template-haskell
     , text
     , transformers >=0.1
@@ -88,7 +82,7 @@ executable examples
   other-modules:
       Config
       Simple
-      Paths_yaml
+      Paths_yaml_streamly
   hs-source-dirs:
       examples
   ghc-options: -Wall -Wcompat
@@ -97,11 +91,10 @@ executable examples
     , attoparsec >=0.11.3.0
     , base >=4.9.1 && <5
     , bytestring >=0.9.1.4
-    , conduit >=1.2.8 && <1.4
     , containers
     , directory
     , filepath
-    , libyaml ==0.1.*
+    , libyaml-streamly >=0.2
     , mtl
     , resourcet >=0.3 && <1.3
     , scientific >=0.3
@@ -115,14 +108,14 @@ executable examples
   else
     build-depends:
         raw-strings-qq
-      , yaml
+      , yaml-streamly
   default-language: Haskell2010
 
 executable json2yaml
   main-is: json2yaml.hs
   other-modules:
       Common
-      Paths_yaml
+      Paths_yaml_streamly
   hs-source-dirs:
       exe
   ghc-options: -Wall -Wcompat
@@ -131,11 +124,10 @@ executable json2yaml
     , attoparsec >=0.11.3.0
     , base >=4.9.1 && <5
     , bytestring >=0.9.1.4
-    , conduit >=1.2.8 && <1.4
     , containers
     , directory
     , filepath
-    , libyaml ==0.1.*
+    , libyaml-streamly >=0.2
     , mtl
     , optparse-applicative
     , resourcet >=0.3 && <1.3
@@ -145,7 +137,7 @@ executable json2yaml
     , transformers >=0.1
     , unordered-containers
     , vector
-    , yaml
+    , yaml-streamly
   if flag(no-exe)
     buildable: False
   default-language: Haskell2010
@@ -154,34 +146,29 @@ executable yaml2json
   main-is: yaml2json.hs
   other-modules:
       Common
-      Paths_yaml
+      Paths_yaml_streamly
   hs-source-dirs:
       exe
-  other-extensions:
-      CPP
-      LambdaCase
-      NamedFieldPuns
+  other-extensions: CPP LambdaCase NamedFieldPuns
   ghc-options: -Wall -Wcompat
   build-depends:
       aeson >=0.11
     , attoparsec >=0.11.3.0
     , base >=4.9.1 && <5
     , bytestring >=0.9.1.4
-    , conduit >=1.2.8 && <1.4
     , containers
     , directory
     , filepath
-    , libyaml ==0.1.*
+    , libyaml-streamly >=0.2
     , mtl
     , optparse-applicative
-    , resourcet >=0.3 && <1.3
     , scientific >=0.3
     , template-haskell
     , text
     , transformers >=0.1
     , unordered-containers
     , vector
-    , yaml
+    , yaml-streamly
   if flag(no-exe)
     buildable: False
   default-language: Haskell2010
@@ -193,11 +180,12 @@ test-suite spec
       Data.Yaml.IncludeSpec
       Data.Yaml.THSpec
       Data.YamlSpec
-      Paths_yaml
+      Paths_yaml_streamly
   hs-source-dirs:
       test
   ghc-options: -Wall -Wcompat -with-rtsopts=-K1K
   cpp-options: -DTEST
+  build-tool-depends: hspec-discover:hspec-discover -any
   build-depends:
       HUnit
     , aeson >=0.11
@@ -205,22 +193,21 @@ test-suite spec
     , base >=4.9.1 && <5
     , base-compat
     , bytestring >=0.9.1.4
-    , conduit >=1.2.8 && <1.4
     , containers
     , directory
     , filepath
     , hspec >=1.3
-    , libyaml ==0.1.*
+    , libyaml-streamly >=0.2
     , mockery
     , mtl
     , raw-strings-qq
-    , resourcet >=0.3 && <1.3
     , scientific >=0.3
+    , streamly >= 0.8.0
     , template-haskell
     , temporary
     , text
     , transformers >=0.1
     , unordered-containers
     , vector
-    , yaml
+    , yaml-streamly
   default-language: Haskell2010

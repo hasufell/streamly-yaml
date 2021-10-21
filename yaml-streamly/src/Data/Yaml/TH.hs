@@ -28,7 +28,7 @@ import           Language.Haskell.TH
 import           Language.Haskell.TH.Syntax
 import           Language.Haskell.TH.Quote
 
-import           Data.Yaml hiding (decodeFile)
+import           Data.Yaml
 
 -- | Decode a YAML file at compile time. Only available on GHC version @7.8.1@
 -- or higher.

@@ -13,7 +13,7 @@ import Data.Version         ( Version(versionBranch) )
 
 import Options.Applicative  ( Parser, help, hidden, infoOption, long, short )
 
-import qualified Paths_yaml as Paths
+import qualified Paths_yaml_streamly as Paths
 
 -- * Version info and option
 ---------------------------------------------------------------------------
