@@ -7,7 +7,6 @@ import           Data.List (isPrefixOf)
 import qualified Data.ByteString.Lazy as LB
 import           Data.Aeson
 import           Data.Aeson.Internal (JSONPathElement(..))
-import           Data.Yaml (ParseException(InvalidYaml))
 import           Data.Yaml.Include
 import           Data.Yaml.Internal
 import           Text.Libyaml (YamlException(YamlException))
