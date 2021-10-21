@@ -15,18 +15,18 @@ license:            BSD3
 license-file:       LICENSE
 build-type:         Simple
 extra-source-files:
-  ChangeLog.md
-  README.md
-  test/json.yaml
-  test/largest-string.yaml
-  test/resources/accent/foo.yaml
-  test/resources/bar.yaml
-  test/resources/baz.yaml
-  test/resources/empty.yaml
-  test/resources/empty2.yaml
-  test/resources/foo.yaml
-  test/resources/loop/bar.yaml
-  test/resources/loop/foo.yaml
+  ./ChangeLog.md
+  ./README.md
+  ./test/json.yaml
+  ./test/largest-string.yaml
+  ./test/resources/accent/foo.yaml
+  ./test/resources/bar.yaml
+  ./test/resources/baz.yaml
+  ./test/resources/empty.yaml
+  ./test/resources/empty2.yaml
+  ./test/resources/foo.yaml
+  ./test/resources/loop/bar.yaml
+  ./test/resources/loop/foo.yaml
 
 source-repository head
   type:     git

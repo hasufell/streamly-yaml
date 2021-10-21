@@ -15,12 +15,12 @@ license:            BSD3
 license-file:       LICENSE
 build-type:         Simple
 extra-source-files:
-  c/helper.h
-  ChangeLog.md
-  libyaml_src/LICENSE
-  libyaml_src/yaml.h
-  libyaml_src/yaml_private.h
-  README.md
+  ./c/helper.h
+  ./ChangeLog.md
+  ./libyaml_src/LICENSE
+  ./libyaml_src/yaml.h
+  ./libyaml_src/yaml_private.h
+  ./README.md
 
 source-repository head
   type:     git
@@ -47,7 +47,7 @@ library
     -fdicts-strict -O2 -fmax-worker-args=16 -fspec-constr-recursive=16
 
   include-dirs:     c
-  c-sources:        c/helper.c
+  c-sources:        ./c/helper.c
   build-depends:
       base             >=4.9.1   && <5
     , bytestring       >=0.9.1.4
@@ -60,14 +60,14 @@ library
   if !flag(system-libyaml)
     include-dirs: libyaml_src
     c-sources:
-      libyaml_src/api.c
-      libyaml_src/dumper.c
-      libyaml_src/emitter.c
-      libyaml_src/loader.c
-      libyaml_src/parser.c
-      libyaml_src/reader.c
-      libyaml_src/scanner.c
-      libyaml_src/writer.c
+      ./libyaml_src/api.c
+      ./libyaml_src/dumper.c
+      ./libyaml_src/emitter.c
+      ./libyaml_src/loader.c
+      ./libyaml_src/parser.c
+      ./libyaml_src/reader.c
+      ./libyaml_src/scanner.c
+      ./libyaml_src/writer.c
 
   else
     extra-libraries: yaml
