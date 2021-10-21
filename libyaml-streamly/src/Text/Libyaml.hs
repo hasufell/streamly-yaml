@@ -808,8 +808,8 @@ encodeFileWith opts filePath inputStream =
     getFile = do
 #if WINDOWS && __GLASGOW_HASKELL__ >= 806
         -- See: https://github.com/snoyberg/yaml/issues/178#issuecomment-550180027
-        removeFile filePath `Control.Exception.catch`
-          (\(_ :: Control.Exception.IOException) -> pure ())
+        removeFile filePath `Control.Exception.Safe.catch`
+          (\(_ :: Control.Exception.Safe.IOException) -> pure ())
 #endif
         file <- openFile filePath write_flags "w"
         if file == nullPtr

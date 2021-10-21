@@ -1,23 +1,23 @@
-# YAML Haskell Library
+# YAML (streamly) Haskell Library
 
-[![Build Status](https://dev.azure.com/snoyberg/yaml/_apis/build/status/snoyberg.yaml?branchName=master)](https://dev.azure.com/snoyberg/yaml/_build/latest?definitionId=7&branchName=master)
-
-This project contains two haskell packages: `yaml` for higher-level parsing and writing of yaml documents, and `libyaml`
+This project contains two haskell packages: `yaml-streamly` for higher-level parsing and writing of yaml documents, and `libyaml-streamly`
 for lower-level event-based streaming.
 
-## `yaml` Package
+This is a fork of `yaml`/`libyaml` that replaces [conduit](https://hackage.haskell.org/package/conduit) with [streamly](https://hackage.haskell.org/package/streamly).
 
-`yaml` provides a high-level interface based around the JSON datatypes provided by the `aeson` package. This allows
+## `yaml-streamly` Package
+
+`yaml-streamly` provides a high-level interface based around the JSON datatypes provided by the `aeson` package. This allows
 using JSON and YAML interchangeably in your code with the `aeson` typeclasses. See the
-[yaml README](https://github.com/snoyberg/yaml/tree/master/yaml/README.md) for more details.
+[yaml README](./yaml-streamly/README.md) for more details.
 
-## `libyaml` Package
+## `libyaml-streamly` Package
 
-`libyaml` is a wrapper over the libyaml C library (and includes the source so no external library is needed). It is an
-event-based streaming API. See the [libyaml README](https://github.com/snoyberg/yaml/tree/master/libyaml/README.md) for
+`libyaml-streamly` is a wrapper over the libyaml C library (and includes the source so no external library is needed). It is an
+event-based streaming API. See the [libyaml README](./libyaml-streamly/README.md) for
 more details.
 
 ## License
 
-This project is licensed with the BSD 3-Clause license. Copies of the license can be found in both the `yaml` and
-`libyaml` subdirectories
+This project is licensed with the BSD 3-Clause license. Copies of the license can be found in both the `yaml-streamly` and
+`libyaml-streamly` subdirectories

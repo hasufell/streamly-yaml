@@ -13,32 +13,38 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        resolver: [nightly, lts-15, lts-14, lts-12, lts-11, lts-9]
-        # Bugs in GHC make it crash too often to be worth running
-        exclude:
-          - os: macos-latest
-            resolver: lts-9
-          - os: windows-latest
-            resolver: lts-15
-          - os: windows-latest
-            resolver: nightly
+        os: [ubuntu-latest, macOS-latest, windows-latest]
+        ghc: ['8.10.7', '9.0.1']
+        cabal: ['3.6.2.0']
 
     steps:
-      - name: Clone project
-        uses: actions/checkout@v2
+    - uses: actions/checkout@v2
 
-      - name: Cache dependencies
-        uses: actions/cache@v1
-        with:
-          path: ~/.stack
-          key: ${{ runner.os }}-${{ matrix.resolver }}-${{ hashFiles('stack.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.resolver }}-
+    - if: matrix.os == 'windows-latest'
+      name: Install ghcup on windows
+      run: Set-ExecutionPolicy Bypass -Scope Process -Force;[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072;Invoke-Command -ScriptBlock ([ScriptBlock]::Create((Invoke-WebRequest https://www.haskell.org/ghcup/sh/bootstrap-haskell.ps1 -UseBasicParsing))) -ArgumentList $false,$true,$true,$false,$false,$false,$false,"C:\"
 
-      - name: Build and run tests
-        shell: bash
-        run: |
-            set -ex
-            stack upgrade || curl -sSL https://get.haskellstack.org/ | sh -s - -f
-            stack test --bench --no-run-benchmarks --haddock --no-haddock-deps --no-terminal --resolver=${{ matrix.resolver }}
+    - if: matrix.os == 'windows-latest'
+      name: Add ghcup to PATH
+      run: echo "/c/ghcup/bin" >> $GITHUB_PATH
+      shell: bash
+
+    - if: matrix.os != 'windows-latest'
+      name: Install ghcup on non-windows
+      run: curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_MINIMAL=1 sh
+
+    - name: Install ghc/cabal
+      run: |
+        ghcup install ghc ${{ matrix.ghc }}
+        ghcup install cabal ${{ matrix.cabal }}
+      shell: bash
+
+    - name: Update cabal index
+      run: cabal update
+      shell: bash
+
+    - name: Build and run tests
+      shell: bash
+      run: |
+        cabal build -f-no-exe -f-no-examples --enable-tests all
+        cabal test all
