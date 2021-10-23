@@ -9,6 +9,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveGeneric, DeriveAnyClass #-}
 
 -- | Low-level, streaming YAML interface. For a higher-level interface, see
 -- "Data.Yaml".
@@ -71,6 +73,8 @@ import qualified Data.ByteString.Unsafe as BU
 #if WINDOWS && __GLASGOW_HASKELL__ >= 806
 import System.Directory (removeFile)
 #endif
+import GHC.Generics (Generic)
+import Control.DeepSeq
 
 import           Control.Exception.Safe
 import qualified Streamly.Internal.Data.Stream.StreamD.Type as D
@@ -91,7 +95,7 @@ data Event =
     | EventSequenceEnd
     | EventMappingStart !Tag !MappingStyle !Anchor
     | EventMappingEnd
-    deriving (Show, Eq)
+    deriving (Show, Eq, Generic, NFData)
 
 -- | Event with start and end marks.
 --
@@ -111,19 +115,19 @@ data Style = Any
            | Literal
            | Folded
            | PlainNoTag
-    deriving (Show, Read, Eq, Enum, Bounded, Ord, Data, Typeable)
+    deriving (Show, Read, Eq, Enum, Bounded, Ord, Data, Typeable, Generic, NFData)
 
 -- | Style for sequences - e.g. block or flow
 -- 
 -- @since 0.9.0
 data SequenceStyle = AnySequence | BlockSequence | FlowSequence
-    deriving (Show, Eq, Enum, Bounded, Ord, Data, Typeable)
+    deriving (Show, Eq, Enum, Bounded, Ord, Data, Typeable, Generic, NFData)
 
 -- | Style for mappings - e.g. block or flow
 -- 
 -- @since 0.9.0
 data MappingStyle = AnyMapping | BlockMapping | FlowMapping
-    deriving (Show, Eq, Enum, Bounded, Ord, Data, Typeable)
+    deriving (Show, Eq, Enum, Bounded, Ord, Data, Typeable, Generic, NFData)
 
 data Tag = StrTag
          | FloatTag
@@ -135,7 +139,7 @@ data Tag = StrTag
          | MapTag
          | UriTag String
          | NoTag
-    deriving (Show, Eq, Read, Data, Typeable)
+    deriving (Show, Eq, Read, Data, Typeable, Generic, NFData)
 
 tagSuppressed :: Tag -> Bool
 tagSuppressed (NoTag) = True
@@ -854,10 +858,10 @@ runEmitter opts allocI closeI inputStream =
 
 -- | The pointer position
 data YamlMark = YamlMark { yamlIndex :: Int, yamlLine :: Int, yamlColumn :: Int }
-    deriving Show
+  deriving (Show, Generic, NFData)
 
 data YamlException = YamlException String
                    -- | problem, context, index, position line, position column
                    | YamlParseException { yamlProblem :: String, yamlContext :: String, yamlProblemMark :: YamlMark }
-    deriving (Show, Typeable)
+    deriving (Show, Typeable, Generic, NFData)
 instance Exception YamlException

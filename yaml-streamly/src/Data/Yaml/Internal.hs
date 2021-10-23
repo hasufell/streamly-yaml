@@ -15,6 +15,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE DeriveGeneric, DeriveAnyClass #-}
 module Data.Yaml.Internal
     (
       ParseException(..)
@@ -73,6 +74,8 @@ import Data.Text.Encoding (decodeUtf8With, encodeUtf8)
 import Data.Text.Encoding.Error (lenientDecode)
 import Data.Typeable
 import qualified Data.Vector as V
+import GHC.Generics (Generic)
+import Control.DeepSeq
 
 import qualified Text.Libyaml as Y
 import Text.Libyaml hiding (encode, decode, encodeFile, decodeFile)
@@ -120,7 +123,9 @@ data ParseException = NonScalarKey
                     | NonStringKeyAlias Y.AnchorName Value
                     | CyclicIncludes
                     | LoadSettingsException FilePath ParseException
-    deriving (Show, Typeable)
+    deriving (Show, Typeable, Generic, NFData)
+
+instance NFData SomeException where rnf !_ = ()
 
 instance Exception ParseException where
 #if MIN_VERSION_base(4, 8, 0)

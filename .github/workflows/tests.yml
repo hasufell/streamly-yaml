@@ -46,5 +46,6 @@ jobs:
     - name: Build and run tests
       shell: bash
       run: |
-        cabal build -f-no-exe -f-no-examples --enable-tests all
+        cabal build -f-no-exe -f-no-examples --enable-tests --enable-benchmarks all
         cabal test all
+        cabal bench all
