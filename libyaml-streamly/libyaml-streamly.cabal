@@ -51,6 +51,7 @@ library
   build-depends:
       base             >=4.9.1   && <5
     , bytestring       >=0.9.1.4
+    , deepseq
     , safe-exceptions
     , streamly         >=0.8.0
 

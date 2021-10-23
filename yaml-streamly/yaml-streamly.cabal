@@ -15,6 +15,8 @@ license:            BSD3
 license-file:       LICENSE
 build-type:         Simple
 extra-source-files:
+  ./bench/resources/ghcup-0.0.6.yaml
+  ./bench/resources/ghcup-0.0.6.yaml.decoded
   ./ChangeLog.md
   ./README.md
   ./test/json.yaml
@@ -67,6 +69,7 @@ library
     , base                  >=4.9.1    && <5
     , bytestring            >=0.9.1.4
     , containers
+    , deepseq
     , directory
     , filepath
     , libyaml-streamly      >=0.2
@@ -92,9 +95,9 @@ executable examples
   hs-source-dirs:   examples
   ghc-options:      -Wall -Wcompat
   build-depends:
-      aeson                 >=0.11
-    , base                  >=4.9.1    && <5
-    , bytestring            >=0.9.1.4
+      aeson       >=0.11
+    , base        >=4.9.1   && <5
+    , bytestring  >=0.9.1.4
     , text
 
   if flag(no-examples)
@@ -117,7 +120,7 @@ executable json2yaml
   ghc-options:      -Wall -Wcompat
   build-depends:
       aeson                 >=0.11
-    , base                  >=4.9.1    && <5
+    , base                  >=4.9.1   && <5
     , bytestring            >=0.9.1.4
     , optparse-applicative
     , yaml-streamly
@@ -142,7 +145,7 @@ executable yaml2json
   ghc-options:      -Wall -Wcompat
   build-depends:
       aeson                 >=0.11
-    , base                  >=4.9.1    && <5
+    , base                  >=4.9.1   && <5
     , bytestring            >=0.9.1.4
     , optparse-applicative
     , yaml-streamly
@@ -167,7 +170,7 @@ test-suite spec
   build-tool-depends: hspec-discover:hspec-discover -any
   build-depends:
       aeson                 >=0.11
-    , base                  >=4.9.1    && <5
+    , base                  >=4.9.1   && <5
     , base-compat
     , bytestring            >=0.9.1.4
     , directory
@@ -185,3 +188,30 @@ test-suite spec
     , yaml-streamly
 
   default-language:   Haskell2010
+
+benchmark bench
+  default-language: Haskell2010
+  ghc-options:
+    -Wall -Wcompat -fspecialise-aggressively -fexpose-all-unfoldings
+    -fdicts-strict -O2 -fmax-worker-args=16 -fspec-constr-recursive=16
+
+  build-depends:
+      aeson
+    , base
+    , bytestring
+    , containers
+    , criterion
+    , deepseq
+    , directory
+    , filepath
+    , megaparsec
+    , strict
+    , temporary
+    , text
+    , versions
+    , yaml-streamly
+
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   bench
+  main-is:          Main.hs
+  other-modules:    GHCupTypes
