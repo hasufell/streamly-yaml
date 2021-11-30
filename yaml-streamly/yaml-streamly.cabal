@@ -1,6 +1,6 @@
 cabal-version:      1.12
 name:               yaml-streamly
-version:            0.12.0
+version:            0.12.1
 synopsis:           Support for parsing and rendering YAML documents.
 description:        Rewrite of yaml in streamly
 category:           Data

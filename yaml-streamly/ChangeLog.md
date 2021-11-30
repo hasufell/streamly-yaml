@@ -1,5 +1,9 @@
 # ChangeLog for yaml-streamly
 
+## 0.12.1
+
+* fix build with streamly-0.8.1
+
 ## 0.12.0
 
 * Rewrite in streamly

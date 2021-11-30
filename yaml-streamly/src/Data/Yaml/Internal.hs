@@ -86,9 +86,14 @@ import           Streamly.Prelude (SerialT)
 import Streamly.Internal.Data.Parser (Parser)
 import qualified Streamly.Internal.Data.Parser as Parser
 import qualified Streamly.Internal.Data.Stream.IsStream.Eliminate as Stream
-import qualified Streamly.Internal.Data.Stream.StreamK as K
-import Streamly.Internal.Data.Parser.ParserK.Type (fromParserK, toParserK, fromEffect)
+import Streamly.Internal.Data.Parser.ParserK.Type (toParserK)
 import qualified Streamly.Internal.Data.Parser.ParserD.Type as ParserD
+#if MIN_VERSION_streamly(0,8,1)
+import Streamly.Internal.Data.Stream.IsStream.Lift (hoist)
+#else
+import Streamly.Internal.Data.Parser.ParserK.Type (fromParserK, fromEffect)
+import Streamly.Internal.Data.Stream.StreamK (hoist)
+#endif
 
 
 
@@ -208,12 +213,12 @@ type Parse = StateT ParseState IO
 
 requireEvent :: Event -> Parser (ReaderT JSONPath Parse) Event ()
 requireEvent e = do
-    f <- anyEvent
+    f <- toParserK anyEvent
     unless (f == Just e) $ missed (Just e)
 
 {-# INLINE anyEvent #-}
-anyEvent :: MonadCatch m => Parser m a (Maybe a)
-anyEvent = toParserK $ ParserD.Parser step initial extract
+anyEvent :: MonadCatch m => ParserD.Parser m a (Maybe a)
+anyEvent = ParserD.Parser step initial extract
   where
   initial = pure $ ParserD.IPartial ()
   step _ a = pure $ ParserD.Done 0 (Just a)
@@ -231,7 +236,7 @@ parse = do
 
 parseAll :: Parser (ReaderT JSONPath Parse) Event [Value]
 parseAll = do
-    e <- anyEvent
+    e <- toParserK anyEvent
     case e of
       Nothing -> return []
       Just EventStreamStart ->
@@ -240,7 +245,7 @@ parseAll = do
 
 parseDocs :: Parser (ReaderT JSONPath Parse) Event [Value]
 parseDocs = do
-  e <- anyEvent
+  e <- toParserK anyEvent
   case e of
       Just EventStreamEnd -> return []
       Just EventDocumentStart -> do
@@ -290,7 +295,7 @@ textToScientific = Atto.parseOnly (num <* Atto.endOfInput)
 
 parseO :: Parser (ReaderT JSONPath Parse) Event Value
 parseO = do
-    me <- anyEvent
+    me <- toParserK anyEvent
     case me of
         Just (EventScalar v tag style a) -> textToValue style tag <$> parseScalar v a style tag
         Just (EventSequenceStart _ _ a) -> parseS 0 a id
@@ -307,10 +312,10 @@ parseS :: Int
        -> ([Value] -> [Value])
        -> Parser (ReaderT JSONPath Parse) Event Value
 parseS !n a front = do
-    me <- Parser.lookAhead anyEvent
+    me <- Parser.lookAhead (toParserK anyEvent)
     case me of
         Just EventSequenceEnd -> do
-            void anyEvent
+            void (toParserK anyEvent)
             let res = Array $ V.fromList $ front []
             mapM_ (defineAnchor res) a
             return res
@@ -323,7 +328,7 @@ parseM :: Set Key
        -> KeyMap Value
        -> Parser (ReaderT JSONPath Parse) Event Value
 parseM mergedKeys a front = do
-    me <- anyEvent
+    me <- toParserK anyEvent
     case me of
         Just EventMappingEnd -> do
             let res = Object front
@@ -368,7 +373,7 @@ parseSrc :: Parser (ReaderT JSONPath Parse) Event val
 parseSrc eventParser src =
   flip runStateT (ParseState Map.empty []) $
     flip runReaderT [] $
-    Stream.parse eventParser (K.hoist liftIO src)
+    Stream.parse eventParser (hoist liftIO src)
 
 mkHelper :: Parser (ReaderT JSONPath Parse) Event val        -- ^ parse libyaml events as Value or [Value]
          -> (SomeException -> IO (Either ParseException a))  -- ^ what to do with unhandled exceptions
@@ -501,6 +506,7 @@ objToEvents stringStyle = objToEvents' . toJSON
        in EventScalar bs IntTag PlainNoTag Nothing : rest
 
 
+#if !MIN_VERSION_streamly(0,8,1)
 instance (MonadThrow m, MonadReader r m, MonadCatch m) => MonadReader r (Parser m a) where
     {-# INLINE ask #-}
     ask = fromEffect ask
@@ -521,4 +527,4 @@ instance (MonadThrow m, MonadState s m) => MonadState s (Parser m a) where
 instance (MonadThrow m, MonadIO m) => MonadIO (Parser m a) where
     {-# INLINE liftIO #-}
     liftIO = fromEffect . liftIO
-
+#endif

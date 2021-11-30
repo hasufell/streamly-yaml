@@ -26,8 +26,13 @@ import Data.Text.Read (signed, decimal)
 import           Streamly.Prelude (SerialT)
 import Streamly.Internal.Data.Parser (Parser)
 import qualified Streamly.Internal.Data.Stream.IsStream.Eliminate as Stream
-import qualified Streamly.Internal.Data.Stream.StreamK as K
 import Streamly.Internal.Data.Parser.ParserK.Type (fromEffect, die)
+import Streamly.Internal.Data.Parser.ParserK.Type (toParserK)
+#if MIN_VERSION_streamly(0,8,1)
+import Streamly.Internal.Data.Stream.IsStream.Lift (hoist)
+#else
+import Streamly.Internal.Data.Stream.StreamK (hoist)
+#endif
 
 import Text.Libyaml
 
@@ -157,7 +162,7 @@ instance Exception YamlParseException
 sinkValue :: (MonadIO m, MonadCatch m, MonadThrow m) => Parser (WriterT AnchorMap m) Event YamlValue
 sinkValue = start
   where
-    start = anyEvent >>= maybe (die "Unexpected end of events") go
+    start = toParserK anyEvent >>= maybe (die "Unexpected end of events") go
 
     tell' Nothing val = return val
     tell' (Just name) val = do
@@ -179,7 +184,7 @@ sinkValue = start
     go e = missed (Just e)
 
     goS front = do
-        me <- anyEvent
+        me <- toParserK anyEvent
         case me of
             Nothing -> die "Unexpected end of events"
             Just EventSequenceEnd -> return $ front []
@@ -188,7 +193,7 @@ sinkValue = start
                 goS (front . (val:))
 
     goM front = do
-        mk <- anyEvent
+        mk <- toParserK anyEvent
         case mk of
             Nothing -> die "Unexpected end of events"
             Just EventMappingEnd -> return $ front []
@@ -202,7 +207,7 @@ sinkValue = start
 {-# INLINE sinkRawDoc #-}
 sinkRawDoc :: SerialT IO Event -> IO RawDoc
 sinkRawDoc src = do
-    uncurry RawDoc <$> runWriterT (Stream.parse sinkValue (K.hoist liftIO src))
+    uncurry RawDoc <$> runWriterT (Stream.parse sinkValue (hoist liftIO src))
 
 readYamlFile :: FromYaml a => FilePath -> IO a
 readYamlFile fp = sinkRawDoc (decodeFile fp) >>= parseRawDoc
