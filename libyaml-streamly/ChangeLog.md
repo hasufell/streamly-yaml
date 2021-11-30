@@ -1,5 +1,9 @@
 # Changelog for libyaml-streamly
 
+## 0.2.1
+
+* Add benchmarks and NFData instances
+
 ## 0.2.0
 
 * Rewrite in streamly
