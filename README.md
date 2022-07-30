@@ -3,6 +3,9 @@
 This project contains two haskell packages: `yaml-streamly` for higher-level parsing and writing of yaml documents, and `libyaml-streamly`
 for lower-level event-based streaming.
 
+The reasoning and migration from conduit is explained in this blog post:
+[From conduit to streamly](https://hasufell.github.io/posts/2021-10-22-conduit-to-streamly.html).
+
 This is a fork of `yaml`/`libyaml` that replaces [conduit](https://hackage.haskell.org/package/conduit) with [streamly](https://hackage.haskell.org/package/streamly).
 
 ## `yaml-streamly` Package
