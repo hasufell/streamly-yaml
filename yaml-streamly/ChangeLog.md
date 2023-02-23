@@ -1,5 +1,9 @@
 # ChangeLog for yaml-streamly
 
+## 0.12.2
+
+* fix build with aeson >= 2.1.2.0
+
 ## 0.12.1
 
 * fix build with streamly-0.8.1
