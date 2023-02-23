@@ -44,7 +44,7 @@ import Control.Applicative ((<$>), Applicative(..))
 import Control.Applicative ((<|>))
 import Control.Monad.State.Strict
 import Control.Monad.Reader
-import Data.Aeson
+import Data.Aeson hiding (AesonException)
 #if MIN_VERSION_aeson(2,0,0)
 import qualified Data.Aeson.Key as K
 import qualified Data.Aeson.KeyMap as M
