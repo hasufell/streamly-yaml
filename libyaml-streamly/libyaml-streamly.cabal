@@ -1,4 +1,4 @@
-cabal-version:      1.12
+cabal-version:      2.2
 name:               libyaml-streamly
 version:            0.2.1
 synopsis:           Low-level, streaming YAML interface via streamly.
@@ -11,7 +11,7 @@ author:
   Michael Snoyman <michael@snoyman.com>, Anton Ageev <antage@gmail.com>,Kirill Simonov, Julian Ospald <hasufell@posteo.de>
 
 maintainer:         Julian Ospald <hasufell@posteo.de>
-license:            BSD3
+license:            BSD-3-Clause
 license-file:       LICENSE
 build-type:         Simple
 extra-source-files:
@@ -53,7 +53,7 @@ library
     , bytestring       >=0.9.1.4
     , deepseq
     , safe-exceptions
-    , streamly         >=0.8.0
+    , streamly         ^>=0.8.0
 
   if flag(no-unicode)
     cpp-options: -D__NO_UNICODE__

@@ -1,4 +1,4 @@
-cabal-version:      1.12
+cabal-version:      2.2
 name:               yaml-streamly
 version:            0.12.2
 synopsis:           Support for parsing and rendering YAML documents.
@@ -11,7 +11,7 @@ author:
   Michael Snoyman <michael@snoyman.com>, Anton Ageev <antage@gmail.com>,Kirill Simonov, Julian Ospald <hasufell@posteo.de>
 
 maintainer:         Julian Ospald <hasufell@posteo.de>
-license:            BSD3
+license:            BSD-3-Clause
 license-file:       LICENSE
 build-type:         Simple
 extra-source-files:
@@ -76,7 +76,7 @@ library
     , mtl
     , safe-exceptions
     , scientific            >=0.3
-    , streamly              >=0.8.0
+    , streamly              ^>=0.8.0
     , template-haskell
     , text
     , transformers          >=0.1
