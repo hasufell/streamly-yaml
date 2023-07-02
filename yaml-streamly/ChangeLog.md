@@ -1,5 +1,9 @@
 # ChangeLog for yaml-streamly
 
+## 0.12.4
+
+* fix test suite with aeson >= 2.2.0.0
+
 ## 0.12.3
 
 * fix build with aeson >= 2.2.0.0
