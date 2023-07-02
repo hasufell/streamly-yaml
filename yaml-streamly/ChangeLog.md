@@ -1,5 +1,10 @@
 # ChangeLog for yaml-streamly
 
+## 0.12.3
+
+* fix build with aeson >= 2.2.0.0
+* pin streamly to < 0.9.0
+
 ## 0.12.2
 
 * fix build with aeson >= 2.1.2.0
