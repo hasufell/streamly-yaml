@@ -1,6 +1,6 @@
 cabal-version:      2.2
 name:               libyaml-streamly
-version:            0.2.1
+version:            0.2.2
 synopsis:           Low-level, streaming YAML interface via streamly.
 description:        Rewrite of libyaml in streamly
 category:           Text

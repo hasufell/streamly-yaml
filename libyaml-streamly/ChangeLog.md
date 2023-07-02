@@ -1,5 +1,9 @@
 # Changelog for libyaml-streamly
 
+## 0.2.2
+
+* pin streamly to < 0.9.0
+
 ## 0.2.1
 
 * Add benchmarks and NFData instances
