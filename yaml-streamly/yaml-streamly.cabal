@@ -57,6 +57,7 @@ library
     Data.Yaml.TH
 
   other-modules:    Paths_yaml_streamly
+  autogen-modules:  Paths_yaml_streamly
   hs-source-dirs:   src
   other-extensions: LambdaCase
   ghc-options:
