@@ -44,7 +44,6 @@ import Control.Applicative ((<$>), Applicative(..))
 import Control.Applicative ((<|>))
 import Control.Monad.State.Strict
 import Control.Monad.Reader
-import Data.Aeson hiding (AesonException)
 #if MIN_VERSION_aeson(2,0,0)
 import qualified Data.Aeson.Key as K
 import qualified Data.Aeson.KeyMap as M
@@ -52,8 +51,13 @@ import Data.Aeson.KeyMap (KeyMap)
 #else
 import qualified Data.HashMap.Strict as M
 #endif
+#if MIN_VERSION_aeson(2,2,0)
+import Data.Aeson.Types hiding (parse, Parser, AesonException)
+#else
 import Data.Aeson.Internal (formatError)
+import Data.Aeson hiding (AesonException)
 import Data.Aeson.Types hiding (parse, Parser)
+#endif
 import qualified Data.Attoparsec.Text as Atto
 import Data.Bits (shiftL, (.|.))
 import Data.ByteString (ByteString)
