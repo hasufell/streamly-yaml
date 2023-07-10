@@ -14,7 +14,7 @@ import System.IO.Error (ioeGetFileName, ioeGetLocation, isDoesNotExistError)
 #endif
 
 import Control.Monad (when)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (MonadIO(..))
 import Data.Aeson (FromJSON)
 import Data.Text (unpack)
 import Data.Text.Encoding (decodeUtf8)
@@ -25,26 +25,30 @@ import Data.Yaml.Internal (ParseException(..), Warning(..), decodeHelper_, decod
 import Text.Libyaml hiding (decodeFile)
 import qualified Text.Libyaml as Y
 
-import           Control.Exception.Safe
-import qualified Streamly.Prelude     as S
-import           Streamly.Prelude (SerialT, MonadAsync)
+import Control.Exception.Safe
 
+import Streamly.Data.Stream (Stream)
+import Streamly.Internal.Data.Stream (CrossStream, unCross, mkCross)
+import qualified Streamly.Data.Stream as S
+
+-- XXX Is there a way we can remove the monadic bind here? And use unfolds for a
+-- concatMap like operations?
 eventsFromFile
-    :: (MonadCatch m, MonadAsync m, MonadMask m)
+    :: (MonadCatch m, MonadIO m, MonadMask m)
     => FilePath
-    -> SerialT m Event
-eventsFromFile = go []
+    -> Stream m Event
+eventsFromFile = unCross . go []
   where
--- decodeFile :: (MonadCatch m, MonadAsync m, MonadMask m) => FilePath -> SerialT m Event
-    go :: (MonadCatch m, MonadAsync m, MonadMask m) => [FilePath] -> FilePath -> SerialT m Event
+-- decodeFile :: (MonadCatch m, MonadIO m, MonadMask m) => FilePath -> SerialT m Event
+    go :: (MonadCatch m, MonadIO m, MonadMask m) => [FilePath] -> FilePath -> CrossStream m Event
     go seen fp = do
         cfp <- liftIO $ handleNotFound $ canonicalizePath fp
         when (cfp `elem` seen) $ do
             liftIO $ throwIO CyclicIncludes
-        Y.decodeFile cfp >>= \event -> case event of
+        mkCross (Y.decodeFile cfp) >>= \event -> case event of
                 EventScalar f (UriTag "!include") _ _ -> do
                     let includeFile = takeDirectory cfp </> unpack (decodeUtf8 f)
-                    S.filter (`notElem` irrelevantEvents) $ go (cfp : seen) includeFile
+                    mkCross $ S.filter (`notElem` irrelevantEvents) $ unCross $ go (cfp : seen) includeFile
                 _ -> pure event
 
     irrelevantEvents = [EventStreamStart, EventDocumentStart, EventDocumentEnd, EventStreamEnd]

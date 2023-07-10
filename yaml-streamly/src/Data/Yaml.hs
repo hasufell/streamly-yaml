@@ -109,10 +109,9 @@ import Data.Yaml.Internal
 import Text.Libyaml hiding (encode, decode, encodeFile, decodeFile, encodeWith, encodeFileWith)
 import qualified Text.Libyaml as Y
 
-import           Control.Exception.Safe
+import Control.Exception.Safe
 
-import qualified Streamly.Prelude     as S
-
+import qualified Streamly.Data.Stream as S
 
 -- | Set the string style in the encoded YAML. This is a function that decides
 -- for each string the type of YAML string to output.

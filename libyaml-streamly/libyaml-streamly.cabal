@@ -54,7 +54,7 @@ library
     , bytestring       >=0.9.1.4
     , deepseq
     , safe-exceptions
-    , streamly         ^>=0.8.0
+    , streamly-core    >=0.2.0 && <0.3
 
   if flag(no-unicode)
     cpp-options: -D__NO_UNICODE__
