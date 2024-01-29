@@ -43,7 +43,6 @@ import Control.Applicative ((<$>), Applicative(..))
 #endif
 import Control.Applicative ((<|>))
 import Control.Monad.State.Strict
-import Control.Monad.Reader
 #if MIN_VERSION_aeson(2,0,0)
 import qualified Data.Aeson.Key as K
 import qualified Data.Aeson.KeyMap as M
@@ -92,11 +91,7 @@ import qualified Streamly.Data.Fold as Fold
 import qualified Streamly.Data.Parser as Parser
 import qualified Streamly.Data.ParserK as ParserK
 import qualified Streamly.Data.StreamK as StreamK
-import qualified Streamly.Internal.Data.Parser as Parser
-    (Step(..), Initial(..), Parser(..))
-import qualified Streamly.Internal.Data.ParserK as ParserK
-    (Step(..), ParserK(..), adapt)
-import qualified Streamly.Internal.Data.StreamK as StreamK (parse, hoist)
+import qualified Streamly.Internal.Data.StreamK as StreamK (hoist)
 
 #if MIN_VERSION_aeson(2,0,0)
 fromText :: T.Text -> K.Key
@@ -186,19 +181,19 @@ prettyPrintParseException pe = case pe of
   LoadSettingsException fp exc -> "Could not parse file as YAML: " ++ fp ++ "\n" ++ prettyPrintParseException exc
 
 
-defineAnchor :: Value -> String -> ParserK Event (ReaderT JSONPath Parse) ()
+defineAnchor :: Value -> String -> ParserK Event Parse ()
 defineAnchor value name = modify (modifyAnchors $ Map.insert name value)
   where
     modifyAnchors :: (Map String Value -> Map String Value) -> ParseState -> ParseState
     modifyAnchors f st =  st {parseStateAnchors = f (parseStateAnchors st)}
 
-lookupAnchor :: String -> ParserK Event (ReaderT JSONPath Parse) (Maybe Value)
+lookupAnchor :: String -> ParserK Event Parse (Maybe Value)
 lookupAnchor name = gets (Map.lookup name . parseStateAnchors)
 
 data Warning = DuplicateKey !JSONPath
     deriving (Eq, Show)
 
-addWarning :: Warning -> ParserK Event (ReaderT JSONPath Parse) ()
+addWarning :: Warning -> ParserK Event Parse ()
 addWarning w = modify (modifyWarnings (w :))
   where
     modifyWarnings :: ([Warning] -> [Warning]) -> ParseState -> ParseState
@@ -211,7 +206,7 @@ data ParseState = ParseState {
 
 type Parse = StateT ParseState IO
 
-requireEvent :: Event -> ParserK Event (ReaderT JSONPath Parse) ()
+requireEvent :: Event -> ParserK Event Parse ()
 requireEvent e = do
     f <- ParserK.adapt anyEvent
     unless (f == Just e) $ missed (Just e)
@@ -220,33 +215,33 @@ requireEvent e = do
 anyEvent :: MonadCatch m => Parser.Parser a m (Maybe a)
 anyEvent = Parser.fromFold Fold.one
 
-parse :: ParserK Event (ReaderT JSONPath Parse) Value
-parse = do
-    docs <- parseAll
+parse :: JSONPath -> ParserK Event Parse Value
+parse env = do
+    docs <- parseAll env
     case docs of
         [] -> return Null
         [doc] -> return doc
         _ -> liftIO $ throwIO MultipleDocuments
 
 
-parseAll :: ParserK Event (ReaderT JSONPath Parse) [Value]
-parseAll = do
+parseAll :: JSONPath -> ParserK Event Parse [Value]
+parseAll env = do
     e <- ParserK.adapt anyEvent
     case e of
       Nothing -> return []
       Just EventStreamStart ->
-        parseDocs
+        parseDocs env
       _ -> missed e
 
-parseDocs :: ParserK Event (ReaderT JSONPath Parse) [Value]
-parseDocs = do
+parseDocs :: JSONPath -> ParserK Event Parse [Value]
+parseDocs env = do
   e <- ParserK.adapt anyEvent
   case e of
       Just EventStreamEnd -> return []
       Just EventDocumentStart -> do
-          res <- parseO
+          res <- parseO env
           requireEvent EventDocumentEnd
-          (res :) <$> parseDocs
+          (res :) <$> parseDocs env
       _ -> missed e
 
 missed :: (MonadIO m, MonadThrow m) => Maybe Event -> ParserK a m b
@@ -254,7 +249,7 @@ missed event = liftIO $ throwIO $ UnexpectedEvent event Nothing
 
 
 parseScalar :: ByteString -> Anchor -> Style -> Tag
-            -> ParserK Event (ReaderT JSONPath Parse) Text
+            -> ParserK Event Parse Text
 parseScalar v a style tag = do
     let res = decodeUtf8With lenientDecode v
     mapM_ (defineAnchor (textToValue style tag res)) a
@@ -288,13 +283,13 @@ textToScientific = Atto.parseOnly (num <* Atto.endOfInput)
         step a c = (a `shiftL` 3) .|. fromIntegral (ord c - 48)
 
 
-parseO :: ParserK Event (ReaderT JSONPath Parse) Value
-parseO = do
+parseO :: JSONPath -> ParserK Event Parse Value
+parseO env = do
     me <- ParserK.adapt anyEvent
     case me of
         Just (EventScalar v tag style a) -> textToValue style tag <$> parseScalar v a style tag
-        Just (EventSequenceStart _ _ a) -> parseS 0 a id
-        Just (EventMappingStart _ _ a) -> parseM mempty a M.empty
+        Just (EventSequenceStart _ _ a) -> parseS env 0 a id
+        Just (EventMappingStart _ _ a) -> parseM env mempty a M.empty
         Just (EventAlias an) -> do
             m <- lookupAnchor an
             case m of
@@ -302,11 +297,12 @@ parseO = do
                 Just v -> return v
         _ -> missed me
 
-parseS :: Int
+parseS :: JSONPath
+       -> Int
        -> Y.Anchor
        -> ([Value] -> [Value])
-       -> ParserK Event (ReaderT JSONPath Parse) Value
-parseS !n a front = do
+       -> ParserK Event Parse Value
+parseS env !n a front = do
     me <- ParserK.adapt (Parser.lookAhead anyEvent)
     case me of
         Just EventSequenceEnd -> do
@@ -315,14 +311,15 @@ parseS !n a front = do
             mapM_ (defineAnchor res) a
             return res
         _ -> do
-            o <- local (Index n :) parseO
-            parseS (succ n) a $ front . (:) o
+            o <- parseO (Index n : env)
+            parseS env (succ n) a $ front . (:) o
 
-parseM :: Set Key
+parseM :: JSONPath
+       -> Set Key
        -> Y.Anchor
        -> KeyMap Value
-       -> ParserK Event (ReaderT JSONPath Parse) Value
-parseM mergedKeys a front = do
+       -> ParserK Event Parse Value
+parseM env mergedKeys a front = do
     me <- ParserK.adapt anyEvent
     case me of
         Just EventMappingEnd -> do
@@ -339,14 +336,14 @@ parseM mergedKeys a front = do
                             Just (String t) -> return $ fromText t
                             Just v -> liftIO $ throwIO $ NonStringKeyAlias an v
                     _ -> do
-                        path <- ask
-                        liftIO $ throwIO $ NonStringKey path
+                        liftIO $ throwIO $ NonStringKey env
 
-            (mergedKeys', al') <- local (Key s :) $ do
-              o <- parseO
+            (mergedKeys', al') <- do
+              let newEnv = Key s : env
+              o <- parseO newEnv
               let al = do
                       when (M.member s front && Set.notMember s mergedKeys) $ do
-                          path <- reverse <$> ask
+                          let path = reverse newEnv
                           addWarning (DuplicateKey path)
                       return (Set.delete s mergedKeys, M.insert s o front)
               if s == "<<"
@@ -355,31 +352,30 @@ parseM mergedKeys a front = do
                                   Array l -> return $ merge $ foldl' mergeObjects M.empty $ V.toList l
                                   _          -> al
                          else al
-            parseM mergedKeys' a al'
+            parseM env mergedKeys' a al'
     where mergeObjects al (Object om) = M.union al om
           mergeObjects al _           = al
 
           merge xs = (Set.fromList (M.keys xs \\ M.keys front), M.union front xs)
 
 
-parseSrc :: ParserK Event (ReaderT JSONPath Parse) val
+parseSrc :: (JSONPath -> ParserK Event Parse val)
          -> Stream IO Event
          -> IO (val, ParseState)
 parseSrc eventParser src =
-  flip runStateT (ParseState Map.empty []) $
-    flip runReaderT [] $ do
+  flip runStateT (ParseState Map.empty []) $ do
       res <-
           StreamK.parse
-              eventParser
+              (eventParser [])
               (StreamK.hoist liftIO (StreamK.fromStream src))
       case res of
         Left err -> throwIO err
         Right val -> pure val
 
-mkHelper :: ParserK Event (ReaderT JSONPath Parse) val        -- ^ parse libyaml events as Value or [Value]
+mkHelper :: (JSONPath -> ParserK Event Parse val)            -- ^ parse libyaml events as Value or [Value]
          -> (SomeException -> IO (Either ParseException a))  -- ^ what to do with unhandled exceptions
          -> ((val, ParseState) -> Either ParseException a)   -- ^ further transform and parse results
-         -> Stream IO Event                                 -- ^ the libyaml event (string/file) source
+         -> Stream IO Event                                  -- ^ the libyaml event (string/file) source
          -> IO (Either ParseException a)
 mkHelper eventParser onOtherExc extractResults src = catches
     (extractResults <$> parseSrc eventParser src)
@@ -505,26 +501,6 @@ objToEvents stringStyle = objToEvents' . toJSON
           lbs = BB.toLazyByteString builder
           bs = BL.toStrict lbs
        in EventScalar bs IntTag PlainNoTag Nothing : rest
-
-
-instance (MonadThrow m, MonadReader r m, MonadCatch m) => MonadReader r (ParserK a m) where
-    {-# INLINE ask #-}
-    ask = ParserK.fromEffect ask
-    {-# INLINE local #-}
-    local f parser =
-      ParserK.MkParser $ \step c1 c2 input ->
-          let step1 pres i inp = do
-                  res <- local f (step pres i inp)
-                  pure $ case res of
-                      ParserK.Done i1 r -> ParserK.Done i1 r
-                      ParserK.Partial i1 r ->
-                          let newF inp1 = local f (r inp1)
-                          in ParserK.Partial i1 newF
-                      ParserK.Continue i1 r ->
-                          let newF inp1 = local f (r inp1)
-                          in ParserK.Continue i1 newF
-                      ParserK.Error i1 r -> ParserK.Error i1 r
-          in local f (ParserK.runParser parser step1 c1 c2 input)
 
 instance (MonadThrow m, MonadState s m) => MonadState s (ParserK a m) where
     {-# INLINE get #-}
