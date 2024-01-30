@@ -38,11 +38,13 @@ module Data.Yaml.Internal
     , missed
     ) where
 
+import Control.Monad (when, unless, void)
+import Control.Monad.IO.Class (MonadIO(..))
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative ((<$>), Applicative(..))
 #endif
 import Control.Applicative ((<|>))
-import Control.Monad.State.Strict
+import Control.Monad.State.Strict (MonadState(..), StateT(..), modify, gets)
 #if MIN_VERSION_aeson(2,0,0)
 import qualified Data.Aeson.Key as K
 import qualified Data.Aeson.KeyMap as M
