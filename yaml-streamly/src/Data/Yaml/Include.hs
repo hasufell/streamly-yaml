@@ -28,28 +28,33 @@ import qualified Text.Libyaml as Y
 import Control.Exception.Safe
 
 import Streamly.Data.Stream (Stream)
-import Streamly.Internal.Data.Stream (CrossStream, unCross, mkCross)
+import Streamly.Data.StreamK (StreamK)
+import qualified Streamly.Data.StreamK as K
 import qualified Streamly.Data.Stream as S
 
--- XXX Is there a way we can remove the monadic bind here? And use unfolds for a
--- concatMap like operations?
 eventsFromFile
     :: (MonadCatch m, MonadIO m, MonadMask m)
     => FilePath
     -> Stream m Event
-eventsFromFile = unCross . go []
+eventsFromFile = K.toStream . go []
   where
--- decodeFile :: (MonadCatch m, MonadIO m, MonadMask m) => FilePath -> SerialT m Event
-    go :: (MonadCatch m, MonadIO m, MonadMask m) => [FilePath] -> FilePath -> CrossStream m Event
-    go seen fp = do
+
+    go :: (MonadCatch m, MonadIO m, MonadMask m) => [FilePath] -> FilePath -> StreamK m Event
+    go seen fp = K.concatEffect $ do
         cfp <- liftIO $ handleNotFound $ canonicalizePath fp
-        when (cfp `elem` seen) $ do
-            liftIO $ throwIO CyclicIncludes
-        mkCross (Y.decodeFile cfp) >>= \event -> case event of
-                EventScalar f (UriTag "!include") _ _ -> do
-                    let includeFile = takeDirectory cfp </> unpack (decodeUtf8 f)
-                    mkCross $ S.filter (`notElem` irrelevantEvents) $ unCross $ go (cfp : seen) includeFile
-                _ -> pure event
+        when (cfp `elem` seen) $ throwIO CyclicIncludes
+        pure $ K.concatMapWith K.append (go1 seen cfp) (K.fromStream (Y.decodeFile cfp))
+
+    go1 seen cfp event =
+        case event of
+            EventScalar f (UriTag "!include") _ _ ->
+                let includeFile =
+                        takeDirectory cfp </> unpack (decodeUtf8 f)
+                in K.fromStream
+                       $ S.filter (`notElem` irrelevantEvents)
+                       $ K.toStream
+                       $ go (cfp : seen) includeFile
+            _ -> K.fromPure event
 
     irrelevantEvents = [EventStreamStart, EventDocumentStart, EventDocumentEnd, EventStreamEnd]
 
