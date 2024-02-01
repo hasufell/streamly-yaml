@@ -210,12 +210,16 @@ type Parse = StateT ParseState IO
 
 requireEvent :: Event -> ParserK Event Parse ()
 requireEvent e = do
-    f <- ParserK.adapt anyEvent
+    f <- anyEvent
     unless (f == Just e) $ missed (Just e)
 
 {-# INLINE anyEvent #-}
-anyEvent :: MonadCatch m => Parser.Parser a m (Maybe a)
-anyEvent = Parser.fromFold Fold.one
+anyEvent :: MonadCatch m => ParserK a m (Maybe a)
+anyEvent = ParserK.adapt $ Parser.fromFold Fold.one
+
+{-# INLINE peekEvent #-}
+peekEvent :: MonadCatch m => ParserK a m (Maybe a)
+peekEvent = ParserK.adapt $ Parser.lookAhead $ Parser.fromFold Fold.one
 
 parse :: JSONPath -> ParserK Event Parse Value
 parse env = do
@@ -228,7 +232,7 @@ parse env = do
 
 parseAll :: JSONPath -> ParserK Event Parse [Value]
 parseAll env = do
-    e <- ParserK.adapt anyEvent
+    e <- anyEvent
     case e of
       Nothing -> return []
       Just EventStreamStart ->
@@ -237,7 +241,7 @@ parseAll env = do
 
 parseDocs :: JSONPath -> ParserK Event Parse [Value]
 parseDocs env = do
-  e <- ParserK.adapt anyEvent
+  e <- anyEvent
   case e of
       Just EventStreamEnd -> return []
       Just EventDocumentStart -> do
@@ -287,7 +291,7 @@ textToScientific = Atto.parseOnly (num <* Atto.endOfInput)
 
 parseO :: JSONPath -> ParserK Event Parse Value
 parseO env = do
-    me <- ParserK.adapt anyEvent
+    me <- anyEvent
     case me of
         Just (EventScalar v tag style a) -> textToValue style tag <$> parseScalar v a style tag
         Just (EventSequenceStart _ _ a) -> parseS env 0 a id
@@ -305,10 +309,10 @@ parseS :: JSONPath
        -> ([Value] -> [Value])
        -> ParserK Event Parse Value
 parseS env !n a front = do
-    me <- ParserK.adapt (Parser.lookAhead anyEvent)
+    me <- peekEvent
     case me of
         Just EventSequenceEnd -> do
-            void (ParserK.adapt anyEvent)
+            void anyEvent
             let res = Array $ V.fromList $ front []
             mapM_ (defineAnchor res) a
             return res
@@ -322,7 +326,7 @@ parseM :: JSONPath
        -> KeyMap Value
        -> ParserK Event Parse Value
 parseM env mergedKeys a front = do
-    me <- ParserK.adapt anyEvent
+    me <- anyEvent
     case me of
         Just EventMappingEnd -> do
             let res = Object front

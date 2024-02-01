@@ -157,9 +157,7 @@ instance Exception YamlParseException
 sinkValue :: (MonadIO m, MonadCatch m, MonadThrow m) => ParserK Event (WriterT AnchorMap m) YamlValue
 sinkValue = start
   where
-    start =
-        ParserK.adapt anyEvent
-            >>= maybe (ParserK.die "Unexpected end of events") go
+    start = anyEvent >>= maybe (ParserK.die "Unexpected end of events") go
 
     tell' Nothing val = return val
     tell' (Just name) val = do
@@ -181,7 +179,7 @@ sinkValue = start
     go e = missed (Just e)
 
     goS front = do
-        me <- ParserK.adapt anyEvent
+        me <- anyEvent
         case me of
             Nothing -> ParserK.die "Unexpected end of events"
             Just EventSequenceEnd -> return $ front []
@@ -190,7 +188,7 @@ sinkValue = start
                 goS (front . (val:))
 
     goM front = do
-        mk <- ParserK.adapt anyEvent
+        mk <- anyEvent
         case mk of
             Nothing -> ParserK.die "Unexpected end of events"
             Just EventMappingEnd -> return $ front []
