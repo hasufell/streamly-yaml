@@ -77,11 +77,10 @@ import GHC.Generics (Generic)
 import Control.DeepSeq
 
 import           Control.Exception.Safe
-import qualified Streamly.Internal.Data.Stream.StreamD.Type as D
-import qualified Streamly.Internal.Data.Unfold as SIU
-import           Streamly.Prelude hiding (yield, finally, bracket)
-import qualified Streamly.Prelude     as S
-import           Streamly.Internal.Data.Unfold.Type
+
+import           Streamly.Data.Stream (Stream)
+import qualified Streamly.Data.Stream as S
+import qualified Streamly.Data.Fold as Fold
 
 
 data Event =
@@ -585,14 +584,14 @@ instance Exception ToEventRawException
 
 
 {-# INLINE decode #-}
-decode :: (MonadCatch m, MonadAsync m, MonadMask m) => B.ByteString -> SerialT m Event
+decode :: (MonadCatch m, MonadIO m, MonadMask m) => B.ByteString -> Stream m Event
 decode = fmap yamlEvent . decodeMarked
 
 {-# INLINE decodeMarked #-}
-decodeMarked :: (MonadCatch m, MonadAsync m, MonadMask m) => B.ByteString -> SerialT m MarkedEvent
+decodeMarked :: (MonadCatch m, MonadIO m, MonadMask m) => B.ByteString -> Stream m MarkedEvent
 decodeMarked bs'
-  | B8.null bs' = nil
-  | otherwise = unfold (SIU.bracket (liftIO . alloc) (liftIO . cleanup) (lmap fst unfoldParser)) bs'
+  | B8.null bs' = S.nil
+  | otherwise = S.bracketIO (alloc bs') cleanup (eventStream . fst)
   where
     alloc bs = mask_ $ do
         ptr <- mallocBytes parserSize
@@ -634,12 +633,12 @@ openFile file rawOpenFlags openMode = do
 
 
 {-# INLINE decodeFile #-}
-decodeFile :: (MonadCatch m, MonadAsync m, MonadMask m) => FilePath -> SerialT m Event
+decodeFile :: (MonadCatch m, MonadIO m, MonadMask m) => FilePath -> Stream m Event
 decodeFile = fmap yamlEvent . decodeFileMarked
 
 {-# INLINE decodeFileMarked #-}
-decodeFileMarked :: (MonadCatch m, MonadAsync m, MonadMask m) => FilePath -> SerialT m MarkedEvent
-decodeFileMarked = unfold (SIU.bracket (liftIO . alloc) (liftIO . cleanup) (lmap fst unfoldParser))
+decodeFileMarked :: (MonadCatch m, MonadIO m, MonadMask m) => FilePath -> Stream m MarkedEvent
+decodeFileMarked fp = S.bracketIO (alloc fp) cleanup (eventStream . fst)
   where
     alloc file = mask_ $ do
         ptr <- mallocBytes parserSize
@@ -666,17 +665,17 @@ decodeFileMarked = unfold (SIU.bracket (liftIO . alloc) (liftIO . cleanup) (lmap
         free ptr
 
 
-{-# INLINE unfoldParser #-}
-unfoldParser :: MonadIO m => Unfold m Parser MarkedEvent
-unfoldParser = Unfold step return
+{-# INLINE eventStream #-}
+eventStream :: MonadIO m => Parser -> Stream m MarkedEvent
+eventStream parser0 = S.unfoldrM step parser0
   where
   {-# INLINE [0] step #-}
   step parser = do
     e <- liftIO $ parserParseOne' parser
     case e of
         Left err -> liftIO $ throwIO err
-        Right Nothing -> pure D.Stop
-        Right (Just ev) -> pure $ D.Yield ev parser
+        Right Nothing -> pure Nothing
+        Right (Just ev) -> pure $ Just (ev, parser)
 
 
 parserParseOne' :: Parser
@@ -767,15 +766,15 @@ setTagRendering :: (Event -> TagRender) -> FormatOptions -> FormatOptions
 setTagRendering f opts = opts { formatOptionsRenderTags = f }
 
 {-# INLINE encode #-}
-encode :: (MonadCatch m, MonadAsync m, MonadMask m)
-       => SerialT m Event
+encode :: (MonadCatch m, MonadIO m, MonadMask m)
+       => Stream m Event
        -> m ByteString
 encode = encodeWith defaultFormatOptions
 
 {-# INLINE encodeWith #-}
-encodeWith :: (MonadCatch m, MonadAsync m, MonadMask m)
+encodeWith :: (MonadCatch m, MonadIO m, MonadMask m)
            => FormatOptions
-           -> SerialT m Event
+           -> Stream m Event
            -> m ByteString
 encodeWith opts =
     runEmitter opts alloc close
@@ -793,18 +792,18 @@ encodeWith opts =
 
 
 {-# INLINE encodeFile #-}
-encodeFile :: (MonadCatch m, MonadAsync m, MonadMask m)
+encodeFile :: (MonadCatch m, MonadIO m, MonadMask m)
            => FilePath
-           -> SerialT m Event
+           -> Stream m Event
            -> m ()
 encodeFile = encodeFileWith defaultFormatOptions
 
 
 {-# INLINE encodeFileWith #-}
-encodeFileWith :: (MonadCatch m, MonadAsync m, MonadMask m)
+encodeFileWith :: (MonadCatch m, MonadIO m,  MonadMask m)
                => FormatOptions
                -> FilePath
-               -> SerialT m Event
+               -> Stream m Event
                -> m ()
 encodeFileWith opts filePath inputStream =
     bracket (liftIO getFile) (liftIO . c_fclose) $ \file -> runEmitter opts (alloc file) (\u _ -> return u) inputStream
@@ -824,11 +823,11 @@ encodeFileWith opts filePath inputStream =
 
 
 {-# INLINE runEmitter #-}
-runEmitter :: (MonadCatch m, MonadAsync m, MonadMask m)
+runEmitter :: (MonadCatch m, MonadIO m, MonadMask m)
            => FormatOptions
            -> (Emitter -> IO a) -- ^ alloc
            -> (() -> a -> IO b) -- ^ close
-           -> SerialT m Event
+           -> Stream m Event
            -> m b
 runEmitter opts allocI closeI inputStream =
     bracket (liftIO alloc) (liftIO . cleanup) go
@@ -850,7 +849,7 @@ runEmitter opts allocI closeI inputStream =
         free emitter
 
     go (emitter, a) = do
-      S.mapM_ push inputStream
+      S.fold (Fold.drainMapM push) inputStream
       liftIO $ closeI () a
       where
         push e = void $ liftIO $ toEventRaw opts e $ c_yaml_emitter_emit emitter

@@ -48,7 +48,7 @@ import Data.HashMap.Strict (HashMap)
 import System.IO (hClose)
 import System.IO.Temp (withSystemTempFile)
 
-import qualified Streamly.Prelude as P
+import qualified Streamly.Data.Stream as P
 import Streamly.Data.Fold (Fold)
 import qualified Streamly.Data.Fold as Fold
 
