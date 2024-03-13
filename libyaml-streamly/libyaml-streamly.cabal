@@ -1,6 +1,6 @@
 cabal-version:      2.2
 name:               libyaml-streamly
-version:            0.2.2
+version:            0.2.2.1
 synopsis:           Low-level, streaming YAML interface via streamly.
 description:        Rewrite of libyaml in streamly
 category:           Text
@@ -14,13 +14,11 @@ maintainer:         Julian Ospald <hasufell@posteo.de>
 license:            BSD-3-Clause
 license-file:       LICENSE
 build-type:         Simple
+extra-doc-files:
+  ./ChangeLog.md
+  ./README.md
 extra-source-files:
   ./c/helper.h
-  ./ChangeLog.md
-  ./libyaml_src/LICENSE
-  ./libyaml_src/yaml.h
-  ./libyaml_src/yaml_private.h
-  ./README.md
 
 source-repository head
   type:     git
@@ -36,7 +34,7 @@ flag no-unicode
 flag system-libyaml
   description: Use the system-wide libyaml instead of the bundled copy
   manual:      False
-  default:     False
+  default:     True
 
 library
   exposed-modules:  Text.Libyaml
@@ -59,20 +57,10 @@ library
   if flag(no-unicode)
     cpp-options: -D__NO_UNICODE__
 
-  if !flag(system-libyaml)
-    include-dirs: libyaml_src
-    c-sources:
-      ./libyaml_src/api.c
-      ./libyaml_src/dumper.c
-      ./libyaml_src/emitter.c
-      ./libyaml_src/loader.c
-      ./libyaml_src/parser.c
-      ./libyaml_src/reader.c
-      ./libyaml_src/scanner.c
-      ./libyaml_src/writer.c
-
+  if flag(system-libyaml)
+    pkgconfig-depends: yaml-0.1
   else
-    extra-libraries: yaml
+    build-depends: libyaml-clib
 
   if os(windows)
     cpp-options:   -DWINDOWS

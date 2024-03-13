@@ -1,5 +1,10 @@
 # Changelog for libyaml-streamly
 
+## 0.2.2.1
+
+* Use pkg-config when linking against system lib
+* Use separate package `libyaml-clib` when using bundled sources
+
 ## 0.2.2
 
 * pin streamly to < 0.9.0
