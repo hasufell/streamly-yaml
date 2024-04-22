@@ -1,5 +1,9 @@
 # Changelog for libyaml-streamly
 
+## 0.2.3.0
+
+* migrate to streamly-core
+
 ## 0.2.2.1
 
 * Use pkg-config when linking against system lib
