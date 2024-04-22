@@ -1,5 +1,9 @@
 # ChangeLog for yaml-streamly
 
+## 0.12.5
+
+* migrate to streamly-core
+
 ## 0.12.4
 
 * fix test suite with aeson >= 2.2.0.0
