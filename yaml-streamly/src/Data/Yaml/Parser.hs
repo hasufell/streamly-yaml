@@ -23,16 +23,11 @@ import Data.Text (Text, pack, unpack)
 import Data.Text.Encoding (decodeUtf8)
 import Data.Text.Read (signed, decimal)
 
-import           Streamly.Prelude (SerialT)
-import Streamly.Internal.Data.Parser (Parser)
-import qualified Streamly.Internal.Data.Stream.IsStream.Eliminate as Stream
-import Streamly.Internal.Data.Parser.ParserK.Type (fromEffect, die)
-import Streamly.Internal.Data.Parser.ParserK.Type (toParserK)
-#if MIN_VERSION_streamly(0,8,1)
-import Streamly.Internal.Data.Stream.IsStream.Lift (hoist)
-#else
-import Streamly.Internal.Data.Stream.StreamK (hoist)
-#endif
+import Streamly.Data.Stream (Stream)
+import Streamly.Data.ParserK (ParserK)
+import qualified Streamly.Data.Stream as Stream
+import qualified Streamly.Data.StreamK as StreamK
+import qualified Streamly.Data.ParserK as ParserK
 
 import Text.Libyaml
 
@@ -159,14 +154,14 @@ data YamlParseException
 instance Exception YamlParseException
 
 {-# INLINE sinkValue #-}
-sinkValue :: (MonadIO m, MonadCatch m, MonadThrow m) => Parser (WriterT AnchorMap m) Event YamlValue
+sinkValue :: (MonadIO m, MonadCatch m, MonadThrow m) => ParserK Event (WriterT AnchorMap m) YamlValue
 sinkValue = start
   where
-    start = toParserK anyEvent >>= maybe (die "Unexpected end of events") go
+    start = anyEvent >>= maybe (ParserK.die "Unexpected end of events") go
 
     tell' Nothing val = return val
     tell' (Just name) val = do
-        fromEffect $ tell $ Map.singleton name val
+        ParserK.fromEffect $ tell $ Map.singleton name val
         return val
 
     go EventStreamStart = start
@@ -184,18 +179,18 @@ sinkValue = start
     go e = missed (Just e)
 
     goS front = do
-        me <- toParserK anyEvent
+        me <- anyEvent
         case me of
-            Nothing -> die "Unexpected end of events"
+            Nothing -> ParserK.die "Unexpected end of events"
             Just EventSequenceEnd -> return $ front []
             Just e -> do
                 val <- go e
                 goS (front . (val:))
 
     goM front = do
-        mk <- toParserK anyEvent
+        mk <- anyEvent
         case mk of
-            Nothing -> die "Unexpected end of events"
+            Nothing -> ParserK.die "Unexpected end of events"
             Just EventMappingEnd -> return $ front []
             Just (EventScalar a b c d) -> do
                 _ <- tell' d $ Scalar a b c d
@@ -205,9 +200,13 @@ sinkValue = start
             Just e -> missed (Just e)
 
 {-# INLINE sinkRawDoc #-}
-sinkRawDoc :: SerialT IO Event -> IO RawDoc
+sinkRawDoc :: Stream IO Event -> IO RawDoc
 sinkRawDoc src = do
-    uncurry RawDoc <$> runWriterT (Stream.parse sinkValue (hoist liftIO src))
+    (res, aMap) <- runWriterT (StreamK.parse sinkValue (StreamK.fromStream (Stream.morphInner liftIO src)))
+    case res of
+        -- XXX Is YamlException the right exception to throw here?
+        Left err -> throwIO $ YamlException $ displayException err
+        Right val -> pure $ RawDoc val aMap
 
 readYamlFile :: FromYaml a => FilePath -> IO a
 readYamlFile fp = sinkRawDoc (decodeFile fp) >>= parseRawDoc

@@ -56,14 +56,15 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy as TL
 import Data.Text.Lazy.Builder (toLazyText)
 import System.IO.Unsafe (unsafePerformIO)
+import Control.Monad.IO.Class (MonadIO)
 
 import Data.Yaml.Internal
 import Text.Libyaml
 
-import           Control.Exception.Safe
+import Control.Exception.Safe
 
-import qualified Streamly.Prelude     as S
-import           Streamly.Prelude (SerialT, MonadAsync)
+import Streamly.Data.Stream (Stream)
+import qualified Streamly.Data.Stream as S
 
 (.=) :: ToYaml a => Text -> a -> (Text, YamlBuilder)
 k .= v = (k, toYaml v)
@@ -160,7 +161,7 @@ string = maybeNamedString Nothing
 -- @since 0.10.3.0
 namedString :: Text -> Text -> YamlBuilder
 namedString name = maybeNamedString $ Just name
- 
+
 -- Use aeson's implementation which gets rid of annoying decimal points
 -- |
 -- @since 0.10.3.0
@@ -223,9 +224,9 @@ toEvents :: YamlBuilder -> [Event]
 toEvents (YamlBuilder front) =
     EventStreamStart : EventDocumentStart : front [EventDocumentEnd, EventStreamEnd]
 
-toSource :: (Monad m, ToYaml a, MonadCatch m, MonadAsync m, MonadMask m)
+toSource :: (Monad m, ToYaml a, MonadCatch m, MonadIO m, MonadMask m)
          => a
-         -> SerialT m Event
+         -> Stream m Event
 toSource = S.fromList . toEvents . toYaml
 
 -- |
