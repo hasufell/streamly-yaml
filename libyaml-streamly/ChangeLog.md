@@ -1,5 +1,9 @@
 # Changelog for libyaml-streamly
 
+## 0.2.4.0
+
+* Allow ByteString that is the result of serialization to be freed: [https://github.com/snoyberg/yaml/pull/233](https://github.com/snoyberg/yaml/pull/233)
+
 ## 0.2.3.0
 
 * migrate to streamly-core
